@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import click
 from typer.testing import CliRunner
 
 from asr_assess.cli import app
@@ -15,7 +16,7 @@ runner = CliRunner()
 def test_help_lists_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "check-config" in result.output
+    assert "check-config" in click.unstyle(result.output)
 
 
 def test_check_config_accepts_shipped_file() -> None:
@@ -31,7 +32,7 @@ def test_check_config_accepts_data_config() -> None:
 def test_data_command_offers_dry_run() -> None:
     result = runner.invoke(app, ["data", "--help"])
     assert result.exit_code == 0
-    assert "--dry-run" in result.output
+    assert "--dry-run" in click.unstyle(result.output)
 
 
 def test_check_config_rejects_invalid_file(tmp_path: Path) -> None:
