@@ -1,0 +1,22 @@
+# Closed-loop load test: each stream sends one utterance, waits, then sends the next.
+# Per-request RTF = end-to-end latency (including queueing) / audio duration.
+concurrency_levels: [1, 2, 4, 8, 16, 32, 64, 128]
+bisect_near_limit: true
+bisect_max_steps: 4
+warmup_s: 30        # discarded
+steady_state_s: 120
+repeats: 3
+request_timeout_s: 60
+gpu_sample_hz: 10
+
+audio_pool:
+  manifest: data/manifests/eval.jsonl   # mixes the 2-5 / 5-15 / 15-30 s buckets
+  size: 200
+  seed: 1234
+
+thresholds:
+  p95_rtf_max: 0.5         # "max sustainable" level
+  p95_rtf_strong: 0.3      # also reported
+  max_wer_delta_points: 1.0  # WER under load within 1 point of single-stream
+
+output_dir: results/loadtest
