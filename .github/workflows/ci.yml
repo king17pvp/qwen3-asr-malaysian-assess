@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      # setup-uv publishes no floating major tag, so pin the full version.
+      - uses: astral-sh/setup-uv@v10.2.0
         with:
           enable-cache: true
       # Base install + dev group only: the train/serve extras need a GPU stack.
