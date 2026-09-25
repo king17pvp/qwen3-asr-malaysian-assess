@@ -32,3 +32,9 @@ def test_is_idempotent() -> None:
     setup_logging("WARNING")
     assert len(rich_handlers()) == 1
     assert logging.getLogger().level == logging.WARNING
+
+
+def test_quiets_chatty_http_libraries() -> None:
+    setup_logging("DEBUG")
+    assert logging.getLogger("httpx").getEffectiveLevel() == logging.WARNING
+    assert logging.getLogger("huggingface_hub").getEffectiveLevel() == logging.WARNING

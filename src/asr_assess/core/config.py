@@ -1,14 +1,17 @@
 """Typed configs for every YAML file, and a single loader.
 
-Data, eval, serve and vLLM models are added alongside the stages that use them.
+Eval, serve and vLLM models are added alongside the stages that use them.
 """
 
 from itertools import pairwise
 from pathlib import Path
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt, model_validator
+
+from asr_assess.core.audio import Bucket
+from asr_assess.core.text import SUPPORTED_LANGUAGES
 
 
 class StrictModel(BaseModel):
@@ -23,6 +26,143 @@ def load_config[T: StrictModel](path: Path, model: type[T]) -> T:
     if not isinstance(raw, dict):
         raise ValueError(f"{path}: top level must be a mapping")
     return model.model_validate(raw)
+
+
+# ---------------------------------------------------------------- data
+
+
+class BucketSpec(StrictModel):
+    """A named duration bucket in seconds."""
+
+    name: str
+    min_s: float = Field(ge=0.0)
+    max_s: PositiveFloat
+
+    def to_bucket(self) -> Bucket:
+        """The runtime bucket used by ``core.audio.assign_bucket``."""
+        return Bucket(self.name, self.min_s, self.max_s)
+
+
+class MesoliticaContextSource(StrictModel):
+    """Malaysian YouTube clips: text from one parquet row group, audio from remote zips."""
+
+    kind: Literal["mesolitica_context"]
+    repo: str
+    parquet: str
+    row_group: int = Field(ge=0)
+    zips: list[str] = Field(min_length=1)
+    # prepared-pseudolabel.jsonl maps a clip's row index to its YouTube video; only the first
+    # ``index_bytes`` are read, which bounds the candidate pool.
+    index_repo: str
+    index_path: str
+    index_bytes: PositiveInt
+    # Videos whose transcript is more than this share Indonesian-only words are excluded.
+    indonesian_max_share: float = Field(ge=0.0, le=1.0)
+    indonesian_min_hits: PositiveInt
+
+
+class MesoliticaConversationalSource(StrictModel):
+    """Malay Conversational Speech Corpus clips, joined to the original corpus for speaker ids."""
+
+    kind: Literal["mesolitica_conversational"]
+    repo: str
+    parquet: str
+    zip: str
+    prefix: str
+    speakers_repo: str
+    speakers_parquet: str
+
+
+class FleursSource(StrictModel):
+    """One split of FLEURS from its auto-converted parquet revision."""
+
+    kind: Literal["fleurs"]
+    repo: str
+    revision: str
+    config: str
+    split: str
+
+
+class LibriSpeechSource(StrictModel):
+    """Selected row groups of a LibriSpeech parquet file (audio embedded)."""
+
+    kind: Literal["librispeech"]
+    repo: str
+    parquet: str
+    row_groups: list[int] = Field(min_length=1)
+
+
+SourceSpec = Annotated[
+    MesoliticaContextSource | MesoliticaConversationalSource | FleursSource | LibriSpeechSource,
+    Field(discriminator="kind"),
+]
+
+
+class Quota(StrictModel):
+    """Minutes of audio to take from a named source."""
+
+    source: str
+    minutes: PositiveFloat
+
+
+class CategorySpec(StrictModel):
+    """A language category with its train and held-out eval quotas.
+
+    When train and eval name the same source, whole speakers/videos go to one side only.
+    """
+
+    name: str
+    language: str | None
+    train: Quota
+    eval: Quota
+    eval_pool_factor: float | None = Field(default=None, ge=1.0)  # overrides the global one
+
+
+class ControlSpec(Quota):
+    """Out-of-domain control set, never trained on."""
+
+    language: str
+
+
+class DataConfig(StrictModel):
+    """configs/data.yaml: dataset sampling, cleaning and splitting."""
+
+    seed: int
+    sample_rate: PositiveInt
+    min_duration_s: PositiveFloat
+    max_duration_s: PositiveFloat
+    min_words: PositiveInt
+    buckets: list[BucketSpec] = Field(min_length=1)
+    bucket_shares: dict[str, float]
+    eval_pool_factor: float = Field(ge=1.0)
+    output_dir: Path
+    sources: dict[str, SourceSpec]
+    categories: list[CategorySpec] = Field(min_length=1)
+    control: ControlSpec
+
+    def sources_in_use(self) -> list[str]:
+        """Names of the sources some category or the control set draws from."""
+        quotas = [q for c in self.categories for q in (c.train, c.eval)] + [self.control]
+        return sorted({q.source for q in quotas})
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Self:
+        names = [b.name for b in self.buckets]
+        if set(self.bucket_shares) != set(names):
+            raise ValueError(f"bucket_shares keys must be exactly the bucket names {names}")
+        if abs(sum(self.bucket_shares.values()) - 1.0) > 1e-6:
+            raise ValueError("bucket_shares must sum to 1")
+        quotas = [q for c in self.categories for q in (c.train, c.eval)] + [self.control]
+        for quota in quotas:
+            if quota.source not in self.sources:
+                raise ValueError(f"Unknown source {quota.source!r}")
+        if self.control.source in {q.source for q in quotas[:-1]}:
+            raise ValueError("The control source must not also feed a train/eval category")
+        languages = [c.language for c in self.categories] + [self.control.language]
+        for language in languages:
+            if language is not None and language not in SUPPORTED_LANGUAGES:
+                raise ValueError(f"Unsupported Qwen3-ASR language: {language!r}")
+        return self
 
 
 # ---------------------------------------------------------------- training

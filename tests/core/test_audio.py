@@ -1,12 +1,20 @@
 """Tests for audio loading/resampling and duration bucketing."""
 
+import io
 from pathlib import Path
 
 import numpy as np
 import pytest
 import soundfile as sf
 
-from asr_assess.core.audio import Bucket, assign_bucket, duration_s, load_audio, write_wav
+from asr_assess.core.audio import (
+    Bucket,
+    assign_bucket,
+    decode_audio,
+    duration_s,
+    load_audio,
+    write_wav,
+)
 
 BUCKETS = (Bucket("2-5", 2.0, 5.0), Bucket("5-15", 5.0, 15.0), Bucket("15-30", 15.0, 30.0))
 
@@ -51,6 +59,15 @@ class TestAudioIO:
         write_wav(path, tone, sample_rate=16000)
 
         assert np.allclose(load_audio(path, sample_rate=16000), tone, atol=1e-3)
+
+    def test_decode_bytes_resamples_and_downmixes(self) -> None:
+        buffer = io.BytesIO()
+        sf.write(buffer, np.zeros((22050, 2), dtype=np.float32), 22050, format="WAV")
+
+        samples = decode_audio(buffer.getvalue(), sample_rate=16000)
+
+        assert samples.ndim == 1
+        assert duration_s(samples, 16000) == pytest.approx(1.0, abs=1e-3)
 
     def test_duration_rejects_nonpositive_rate(self) -> None:
         with pytest.raises(ValueError):
