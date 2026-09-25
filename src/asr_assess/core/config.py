@@ -259,6 +259,9 @@ class LoadTestConfig(StrictModel):
 
 # ---------------------------------------------------------------- inference
 
+# auto: the model detects the language; manifest: force each clip's manifest language.
+LanguageHint = Literal["auto", "manifest"]
+
 
 class EngineConfig(StrictModel):
     """configs/engines/*.yaml: which ASR backend to run and how to load it."""
@@ -269,8 +272,7 @@ class EngineConfig(StrictModel):
     device: str
     attn_implementation: Literal["eager", "sdpa", "flash_attention_2"]
     max_new_tokens: PositiveInt
-    # auto: the model detects the language; manifest: force each clip's manifest language.
-    language_hint: Literal["auto", "manifest"]
+    language_hint: LanguageHint
 
 
 class BootstrapSettings(StrictModel):

@@ -8,7 +8,8 @@ import pytest
 
 from asr_assess.core.config import BootstrapSettings, EvalConfig
 from asr_assess.core.run_record import RunRecord
-from asr_assess.evaluation.evaluate import evaluate, run_batches, to_requests
+from asr_assess.evaluation.evaluate import evaluate, run_batches
+from asr_assess.inference.requests import to_requests
 from tests.fakes import ScriptedEngine, write_clips
 
 SPECS = [("a", 3.0, "2-5", "satu dua"), ("b", 6.0, "5-15", "tiga empat"), ("c", 2.5, "2-5", "lima")]
@@ -35,19 +36,6 @@ def record() -> RunRecord:
         package_versions={},
         timestamp=datetime(2026, 9, 26, tzinfo=UTC),
     )
-
-
-def test_requests_carry_manifest_language_only_when_asked(tmp_path: Path) -> None:
-    entries = write_clips(tmp_path, SPECS)
-    assert {r.language for r in to_requests(entries, 16000, "auto")} == {None}
-    assert {r.language for r in to_requests(entries, 16000, "manifest")} == {"Malay"}
-
-
-def test_missing_audio_names_the_file(tmp_path: Path) -> None:
-    entries = write_clips(tmp_path, SPECS)
-    Path(entries[0].audio).unlink()
-    with pytest.raises(FileNotFoundError, match=r"a\.wav"):
-        to_requests(entries, 16000, "auto")
 
 
 def test_batches_are_capped_and_order_is_kept(tmp_path: Path) -> None:

@@ -10,12 +10,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from asr_assess.benchmark.env_info import EnvInfo
-from asr_assess.core.config import BenchConfig
+from asr_assess.core.config import BenchConfig, LanguageHint
 from asr_assess.core.manifest import ManifestEntry
 from asr_assess.core.metrics import RTFStats, rtf, summarize_rtf
 from asr_assess.core.run_record import RunRecord
-from asr_assess.evaluation.evaluate import LanguageHint, to_requests
 from asr_assess.inference.engine import ASREngine, AudioRequest, ReportsPeakMemory, check_alignment
+from asr_assess.inference.requests import to_requests
 
 log = logging.getLogger(__name__)
 

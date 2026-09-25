@@ -1,6 +1,8 @@
 """Tests for single-stream RTF measurement."""
 
 import json
+import subprocess
+import sys
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,7 +13,7 @@ from asr_assess.benchmark.env_info import EnvInfo
 from asr_assess.benchmark.offline import measure, run_offline, select_bench_set, summarize
 from asr_assess.core.config import BenchConfig
 from asr_assess.core.run_record import RunRecord
-from asr_assess.evaluation.evaluate import to_requests
+from asr_assess.inference.requests import to_requests
 from tests.fakes import FakeClock, ScriptedEngine, write_clips
 
 SPECS = [(f"s{i}", 3.0, "2-5", "x") for i in range(6)] + [
@@ -109,3 +111,11 @@ def test_run_refuses_to_overwrite(tmp_path: Path) -> None:
         run_offline(
             ScriptedEngine(), entries, cfg(tmp_path), "auto", out_dir, record(), env(), FakeClock()
         )
+
+
+def test_benchmark_does_not_depend_on_evaluation() -> None:
+    code = (
+        "import sys, asr_assess.benchmark.offline; "
+        "sys.exit(any(m.startswith('asr_assess.evaluation') for m in sys.modules))"
+    )
+    assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
