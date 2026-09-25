@@ -27,6 +27,33 @@ Clips are 2–30 s, resampled to 16 kHz mono and spread over the 2–5 / 5–15 
 Sampling is seeded (`seed` in `configs/data.yaml`); `data/manifests/stats.json` records minutes per
 split, bucket and source together with the git commit and config hash.
 
+## Baseline (GPU)
+
+The baseline is plain Transformers (`configs/engines/hf_base.yaml`: bf16, eager attention,
+greedy decoding, batch 1). RTF = processing time / audio duration, measured end to end
+(feature extraction + generate + decode) for one request at a time after 5 discarded warm-up
+requests.
+
+```bash
+# on the GPU box
+HF_TOKEN=... bash scripts/vast_setup.sh <repo-url>
+# from your machine: use the exact dataset built locally
+rsync -avz data/ <box>:~/qwen3-asr-malaysian-assess/data/
+# on the box, in qwen3-asr-malaysian-assess/
+uv run pytest -m model                      # real-model smoke test: run this first
+uv run asr-assess eval --engine configs/engines/hf_base.yaml --manifest eval --limit 3 \
+    --run-name smoke-eval                   # a 3-clip dry run of the full path
+uv run asr-assess eval --engine configs/engines/hf_base.yaml --manifest eval      # results/eval/hf_base-eval/
+uv run asr-assess eval --engine configs/engines/hf_base.yaml --manifest control   # results/eval/hf_base-control/
+uv run asr-assess bench --engine configs/engines/hf_base.yaml                     # results/bench/hf_base-offline/
+# back on your machine
+rsync -avz <box>:~/qwen3-asr-malaysian-assess/results/ results/
+```
+
+`make eval-base` and `make bench-base` are shortcuts for the last three commands. Result
+folders are never overwritten: re-runs need a new `--run-name`. `metrics.json` and
+`summary.json` record the git commit, config, GPU and time of every run.
+
 ## Development
 
 Everything runs through [uv](https://docs.astral.sh/uv/); the base install and CPU tests need no GPU.
