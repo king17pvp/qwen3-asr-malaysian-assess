@@ -37,5 +37,9 @@ def test_transcribes_1d_numpy_audio_in_order(engine: object) -> None:
     batch = [AudioRequest(e.audio, load_audio(Path(e.audio), 16000)) for e in entries]
     out = engine.transcribe(batch)  # type: ignore[attr-defined]
     assert [t.id for t in out] == [e.audio for e in entries]
-    assert all(t.text and "<asr_text>" not in t.text for t in out)
-    assert all(t.language in (None, "English") for t in out)
+    for t in out:
+        # If decode stripped <asr_text> as a special token, the prefix would leak into the text
+        # and the language would be lost: every WER would silently include "language english".
+        assert t.text and "<asr_text>" not in t.text
+        assert not t.text.lower().startswith("language"), t.text
+        assert t.language == "English", t  # LibriSpeech control clips are English speech
