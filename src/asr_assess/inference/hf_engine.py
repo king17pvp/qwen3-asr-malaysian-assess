@@ -6,7 +6,7 @@ splits ``language X<asr_text>...`` into language and transcription.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 from asr_assess.core.config import EngineConfig
@@ -26,9 +26,13 @@ def language_argument(languages: Sequence[str | None]) -> str | list[str | None]
     return list(languages)
 
 
-def hit_token_limit(generated_tokens: int, max_new_tokens: int) -> bool:
-    """Whether generation stopped because it ran out of tokens, not at end-of-sequence."""
-    return generated_tokens >= max_new_tokens
+def hit_token_limit(row: Sequence[int], eos_ids: Collection[int], max_new_tokens: int) -> bool:
+    """Whether a generated row used every allowed token without producing end-of-sequence.
+
+    Decided from EOS rather than padding: in a batch, ``generate`` fills rows that stopped early
+    with the pad id, which for Qwen checkpoints can itself be an EOS token.
+    """
+    return len(row) >= max_new_tokens and not any(token in eos_ids for token in row)
 
 
 class HFEngine:
@@ -51,7 +55,8 @@ class HFEngine:
             attn_implementation=cfg.attn_implementation,
         )
         self._model: Any = model.to(cfg.device).eval()
-        self._pad_id = self._processor.tokenizer.pad_token_id
+        eos = self._model.generation_config.eos_token_id
+        self._eos_ids: set[int] = set(eos if isinstance(eos, list) else [eos])
         log.info("Loaded %s on %s", self.name, cfg.device)
 
     def transcribe(self, batch: Sequence[AudioRequest]) -> list[Transcript]:
@@ -66,15 +71,15 @@ class HFEngine:
             )
         generated = output[:, inputs["input_ids"].shape[1] :]
         parsed = self._processor.decode(generated, return_format="parsed")
-        lengths = (generated != self._pad_id).sum(dim=1).tolist()
+        rows: list[list[int]] = generated.tolist()
         return [
             Transcript(
                 id=request.id,
                 text=item["transcription"].strip(),
                 language=item["language"] or None,
-                hit_token_limit=hit_token_limit(length, self._cfg.max_new_tokens),
+                hit_token_limit=hit_token_limit(row, self._eos_ids, self._cfg.max_new_tokens),
             )
-            for request, item, length in zip(batch, parsed, lengths, strict=True)
+            for request, item, row in zip(batch, parsed, rows, strict=True)
         ]
 
     def peak_memory_gb(self) -> float:

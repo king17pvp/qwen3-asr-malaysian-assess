@@ -15,6 +15,21 @@ def test_mixed_hints_are_passed_per_clip() -> None:
     assert language_argument(["Malay", None]) == ["Malay", None]
 
 
-def test_token_limit_detection() -> None:
-    assert hit_token_limit(256, 256)
-    assert not hit_token_limit(40, 256)
+EOS = {151645, 151643}
+
+
+def test_row_that_fills_the_limit_without_eos_is_truncated() -> None:
+    assert hit_token_limit([7, 8, 9, 10], EOS, max_new_tokens=4)
+
+
+def test_row_that_ends_with_eos_is_not_truncated() -> None:
+    assert not hit_token_limit([7, 8, 9, 151645], EOS, max_new_tokens=4)
+
+
+def test_early_finisher_padded_in_a_batch_is_not_truncated() -> None:
+    # generate pads rows that stop early with an EOS-like pad id up to the batch's longest row
+    assert not hit_token_limit([7, 151645, 151643, 151643], EOS, max_new_tokens=4)
+
+
+def test_short_row_is_not_truncated() -> None:
+    assert not hit_token_limit([7, 8], EOS, max_new_tokens=4)
