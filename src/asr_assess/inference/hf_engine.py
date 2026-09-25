@@ -36,13 +36,16 @@ class HFEngine:
 
     def __init__(self, cfg: EngineConfig) -> None:
         import torch
-        from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
+        import transformers
 
+        # Typed as Any: CI type-checks without the train extra, where transformers is untyped,
+        # and its real annotations (installed locally) reject calls that work at runtime.
+        hf: Any = transformers
         self.name = f"hf:{cfg.model_id}:{cfg.attn_implementation}"
         self._cfg = cfg
         self._torch: Any = torch
-        self._processor: Any = AutoProcessor.from_pretrained(cfg.model_id)
-        model = Qwen3ASRForConditionalGeneration.from_pretrained(
+        self._processor: Any = hf.AutoProcessor.from_pretrained(cfg.model_id)
+        model = hf.Qwen3ASRForConditionalGeneration.from_pretrained(
             cfg.model_id,
             dtype=getattr(torch, cfg.dtype),
             attn_implementation=cfg.attn_implementation,
