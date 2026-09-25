@@ -23,6 +23,17 @@ def test_check_config_accepts_shipped_file() -> None:
     assert result.exit_code == 0, result.output
 
 
+def test_check_config_accepts_data_config() -> None:
+    result = runner.invoke(app, ["check-config", "data", str(CONFIGS / "data.yaml")])
+    assert result.exit_code == 0, result.output
+
+
+def test_data_command_offers_dry_run() -> None:
+    result = runner.invoke(app, ["data", "--help"])
+    assert result.exit_code == 0
+    assert "--dry-run" in result.output
+
+
 def test_check_config_rejects_invalid_file(tmp_path: Path) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text("rank: 16\n", encoding="utf-8")
