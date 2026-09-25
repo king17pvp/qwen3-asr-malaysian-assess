@@ -20,8 +20,10 @@ class Scored:
     category: str
     bucket: str
     duration: float
-    reference: str
-    hypothesis: str
+    reference: str  # normalized, as scored
+    hypothesis: str  # normalized, as scored
+    reference_raw: str  # manifest transcript, so results can be re-scored without a GPU
+    hypothesis_raw: str  # engine output
     detected_language: str | None
     hit_token_limit: bool
     words: ErrorCounts
@@ -74,6 +76,8 @@ def score_utterance(entry: ManifestEntry, transcript: Transcript) -> Scored:
         duration=entry.duration,
         reference=ref,
         hypothesis=hyp,
+        reference_raw=entry.transcript,
+        hypothesis_raw=transcript.text,
         detected_language=transcript.language,
         hit_token_limit=transcript.hit_token_limit,
         words=utterance_errors(ref, hyp, unit="word"),

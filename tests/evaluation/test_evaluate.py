@@ -81,3 +81,14 @@ def test_refuses_to_overwrite_an_existing_run(tmp_path: Path) -> None:
     evaluate(ScriptedEngine(), entries, cfg(tmp_path), "auto", out_dir, record())
     with pytest.raises(FileExistsError):
         evaluate(ScriptedEngine(), entries, cfg(tmp_path), "auto", out_dir, record())
+
+
+def test_hypotheses_keep_raw_text_next_to_normalized(tmp_path: Path) -> None:
+    entries = write_clips(tmp_path, SPECS[:1])
+    engine = ScriptedEngine({entries[0].audio: "Satu, DUA!"})
+    out_dir = tmp_path / "results" / "run"
+    evaluate(engine, entries, cfg(tmp_path), "auto", out_dir, record())
+    row = json.loads((out_dir / "hypotheses.jsonl").read_text(encoding="utf-8"))
+    assert row["hypothesis_raw"] == "Satu, DUA!"
+    assert row["hypothesis"] == "satu dua"
+    assert row["reference_raw"] == "satu dua"
