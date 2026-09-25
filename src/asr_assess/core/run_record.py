@@ -39,16 +39,16 @@ def git_state(repo: Path) -> tuple[str | None, bool]:
 
     Untracked files (notes, data) are ignored: they cannot change what the committed code does.
     """
-    commit = _run(["git", "-C", str(repo), "rev-parse", "HEAD"])
+    commit = run_command(["git", "-C", str(repo), "rev-parse", "HEAD"])
     if commit is None:
         return None, False
-    status = _run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"])
+    status = run_command(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"])
     return commit, bool(status)
 
 
 def gpu_name() -> str | None:
     """Name of the first NVIDIA GPU, or None when no GPU or driver is present."""
-    out = _run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"])
+    out = run_command(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"])
     return out.splitlines()[0].strip() if out else None
 
 
@@ -80,7 +80,8 @@ def collect_run_record(
     )
 
 
-def _run(cmd: list[str]) -> str | None:
+def run_command(cmd: list[str]) -> str | None:
+    """Stripped stdout of ``cmd``, or None if it cannot run or fails."""
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
