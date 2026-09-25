@@ -79,6 +79,12 @@ class TestDataConfig:
         with pytest.raises(ValidationError, match="control"):
             DataConfig.model_validate(raw)
 
+    def test_eval_spread_must_be_able_to_fill_the_quota(self) -> None:
+        raw = self.load()
+        raw["eval_min_groups"], raw["eval_max_group_share"] = 2, 0.4
+        with pytest.raises(ValidationError, match="eval_max_group_share"):
+            DataConfig.model_validate(raw)
+
     def test_bucket_shares_must_sum_to_one(self) -> None:
         raw = self.load()
         raw["bucket_shares"] = {"2-5": 0.5, "5-15": 0.2, "15-30": 0.2}

@@ -135,6 +135,8 @@ class DataConfig(StrictModel):
     buckets: list[BucketSpec] = Field(min_length=1)
     bucket_shares: dict[str, float]
     eval_pool_factor: float = Field(ge=1.0)
+    eval_min_groups: PositiveInt
+    eval_max_group_share: float = Field(gt=0.0, le=1.0)
     output_dir: Path
     sources: dict[str, SourceSpec]
     categories: list[CategorySpec] = Field(min_length=1)
@@ -152,6 +154,8 @@ class DataConfig(StrictModel):
             raise ValueError(f"bucket_shares keys must be exactly the bucket names {names}")
         if abs(sum(self.bucket_shares.values()) - 1.0) > 1e-6:
             raise ValueError("bucket_shares must sum to 1")
+        if self.eval_min_groups * self.eval_max_group_share < 1.0:
+            raise ValueError("eval_min_groups * eval_max_group_share must be >= 1 to fill eval")
         quotas = [q for c in self.categories for q in (c.train, c.eval)] + [self.control]
         for quota in quotas:
             if quota.source not in self.sources:

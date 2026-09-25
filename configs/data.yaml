@@ -13,6 +13,10 @@ bucket_shares: {"2-5": 0.3, "5-15": 0.45, "15-30": 0.25}
 # When train and eval share a source, eval groups are drawn until the eval pool holds
 # this many times the eval quota, leaving room for the bucket spread.
 eval_pool_factor: 3.0
+# Every eval set spans at least this many speakers/videos, and no single one supplies more
+# than this share of it, so one talkative speaker cannot dominate the eval WER.
+eval_min_groups: 3
+eval_max_group_share: 0.4
 output_dir: data
 
 sources:
