@@ -1,0 +1,27 @@
+# Decoder-only LoRA fine-tuning of Qwen3-ASR-1.7B (audio encoder frozen).
+model_id: Qwen/Qwen3-ASR-1.7B-hf
+train_manifest: data/manifests/train.jsonl
+eval_manifest: data/manifests/eval.jsonl
+output_dir: checkpoints/lora
+seed: 42
+
+lora:
+  rank: 16
+  alpha: 32
+  dropout: 0.05
+  # Qwen3 decoder projection names. TODO(gpu): confirm against model.named_modules()
+  # and that the audio encoder is excluded (training/lora.py restricts matching to the decoder).
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+optim:
+  learning_rate: 1.0e-4
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  per_device_batch_size: 8
+  gradient_accumulation_steps: 2   # effective batch 16
+  num_epochs: 5
+  bf16: true
+  gradient_checkpointing: true
+  eval_strategy: epoch
+  metric_for_best_model: eval_loss   # best checkpoint kept at the end of training
+  logging_steps: 5
