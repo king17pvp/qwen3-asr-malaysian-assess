@@ -57,9 +57,18 @@ def is_usable(candidate: Candidate, min_s: float, max_s: float, min_words: int) 
 
 
 def split_groups(
-    candidates: Sequence[Candidate], eval_target_s: float, rng: random.Random
+    candidates: Sequence[Candidate],
+    eval_target_s: float,
+    rng: random.Random,
+    min_groups: int,
+    max_group_s: float | None = None,
 ) -> tuple[list[Candidate], list[Candidate]]:
-    """Move whole random groups to eval until it holds ``eval_target_s``; the rest is train."""
+    """Move whole random groups to eval until it holds ``eval_target_s`` and at least
+    ``min_groups`` groups; the rest is train.
+
+    With ``max_group_s``, a group counts only up to that many seconds, matching the cap that
+    ``select_by_minutes`` later applies, so the eval side can actually fill its quota.
+    """
     by_group: dict[str, list[Candidate]] = defaultdict(list)
     for candidate in candidates:
         by_group[candidate.group].append(candidate)
@@ -68,13 +77,16 @@ def split_groups(
     eval_groups: set[str] = set()
     held_s = 0.0
     for group in groups:
-        if held_s >= eval_target_s:
+        if held_s >= eval_target_s and len(eval_groups) >= min_groups:
             break
         eval_groups.add(group)
-        held_s += sum(c.duration_hint for c in by_group[group])
-    if held_s < eval_target_s or len(eval_groups) == len(groups):
+        group_s = sum(c.duration_hint for c in by_group[group])
+        held_s += group_s if max_group_s is None else min(group_s, max_group_s)
+    enough = held_s >= eval_target_s and len(eval_groups) >= min_groups
+    if not enough or len(eval_groups) == len(groups):
         raise ValueError(
-            f"Not enough groups to hold out {eval_target_s:.0f} s and keep a train side"
+            f"Not enough groups to hold out {eval_target_s:.0f} s over {min_groups}+ groups "
+            "and keep a train side"
         )
     train = [c for c in candidates if c.group not in eval_groups]
     return train, [c for c in candidates if c.group in eval_groups]
@@ -86,26 +98,38 @@ def select_by_minutes(
     buckets: Sequence[Bucket],
     shares: Mapping[str, float],
     rng: random.Random,
+    max_group_s: float | None,
 ) -> list[Candidate]:
-    """Random clips filling each bucket's share of ``target_s``, topped up from any bucket."""
+    """Random clips filling each bucket's share of ``target_s``, topped up from any bucket.
+
+    With ``max_group_s``, no group (speaker/video) contributes more than that many seconds.
+    """
     order = sorted(pool, key=lambda c: c.key)
     rng.shuffle(order)
     chosen: list[Candidate] = []
+    group_s: dict[str, float] = defaultdict(float)
+
+    def take_if(candidate: Candidate, room_s: float) -> float:
+        d = candidate.duration_hint
+        capped = max_group_s is not None and group_s[candidate.group] + d > max_group_s
+        if d > room_s or capped:
+            return 0.0
+        chosen.append(candidate)
+        group_s[candidate.group] += d
+        return d
+
     for bucket in buckets:
         quota, got = shares[bucket.name] * target_s, 0.0
         for candidate in order:
-            fits = got + candidate.duration_hint <= quota
-            if fits and assign_bucket(candidate.duration_hint, buckets) == bucket.name:
-                chosen.append(candidate)
-                got += candidate.duration_hint
+            if assign_bucket(candidate.duration_hint, buckets) == bucket.name:
+                got += take_if(candidate, quota - got)
     taken = {c.key for c in chosen}
-    total = sum(c.duration_hint for c in chosen)
+    total = sum(group_s.values())
     for candidate in order:
         if total >= target_s:
             break
         if candidate.key not in taken:
-            chosen.append(candidate)
-            total += candidate.duration_hint
+            total += take_if(candidate, float("inf"))
     return chosen
 
 
@@ -148,7 +172,9 @@ def _category_pools(
         return usable[cat.train.source], usable[cat.eval.source]
     factor = cat.eval_pool_factor or cfg.eval_pool_factor
     eval_pool_s = cat.eval.minutes * 60 * factor
-    return split_groups(usable[cat.train.source], eval_pool_s, rng)
+    max_group_s = cat.eval.minutes * 60 * cfg.eval_max_group_share
+    pool = usable[cat.train.source]
+    return split_groups(pool, eval_pool_s, rng, cfg.eval_min_groups, max_group_s)
 
 
 def _plan(
@@ -162,7 +188,9 @@ def _plan(
 ) -> SplitPlan:
     buckets = [b.to_bucket() for b in cfg.buckets]
     target_s = quota.minutes * 60
-    clips = select_by_minutes(pool, target_s, buckets, cfg.bucket_shares, rng)
+    # Eval is capped per group so one talkative speaker/video cannot dominate the WER.
+    max_group_s = target_s * cfg.eval_max_group_share if split == "eval" else None
+    clips = select_by_minutes(pool, target_s, buckets, cfg.bucket_shares, rng, max_group_s)
     return SplitPlan(split, category, language, quota.source, target_s, clips)
 
 

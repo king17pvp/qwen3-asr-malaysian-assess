@@ -53,55 +53,115 @@ class TestIsUsable:
 
 class TestSplitGroups:
     def test_no_group_on_both_sides(self) -> None:
-        train, evaluation = split_groups(pool(20, 5, [4.0]), 60.0, random.Random(0))
+        train, evaluation = split_groups(pool(20, 5, [4.0]), 60.0, random.Random(0), min_groups=1)
         assert {c.group for c in train}.isdisjoint({c.group for c in evaluation})
         assert len(train) + len(evaluation) == 100
 
     def test_eval_side_reaches_target(self) -> None:
-        _, evaluation = split_groups(pool(20, 5, [4.0]), 60.0, random.Random(0))
+        _, evaluation = split_groups(pool(20, 5, [4.0]), 60.0, random.Random(0), min_groups=1)
         assert sum(c.duration_hint for c in evaluation) >= 60.0
 
     def test_is_seeded(self) -> None:
-        a = split_groups(pool(20, 5, [4.0]), 60.0, random.Random(3))
-        assert split_groups(pool(20, 5, [4.0]), 60.0, random.Random(3)) == a
+        a = split_groups(pool(20, 5, [4.0]), 60.0, random.Random(3), min_groups=1)
+        assert split_groups(pool(20, 5, [4.0]), 60.0, random.Random(3), min_groups=1) == a
 
     def test_fails_when_eval_would_take_every_group(self) -> None:
         with pytest.raises(ValueError, match="enough"):
-            split_groups(pool(2, 1, [4.0]), 60.0, random.Random(0))
+            split_groups(pool(2, 1, [4.0]), 60.0, random.Random(0), min_groups=1)
+
+    def test_takes_at_least_min_groups_even_if_one_group_fills_the_target(self) -> None:
+        big = [cand(f"big-{i}", 20.0, group="big") for i in range(10)]
+        small = [cand(f"s{g}-{i}", 4.0, group=f"s{g}") for g in range(6) for i in range(2)]
+        for seed in range(10):
+            _, evaluation = split_groups(big + small, 60.0, random.Random(seed), min_groups=3)
+            assert len({c.group for c in evaluation}) >= 3
+
+    def test_counts_each_group_only_up_to_the_cap(self) -> None:
+        big = [cand(f"big-{i}", 20.0, group="big") for i in range(10)]
+        small = [cand(f"s{g}-{i}", 4.0, group=f"s{g}") for g in range(20) for i in range(2)]
+        for seed in range(10):
+            _, evaluation = split_groups(
+                big + small, 60.0, random.Random(seed), min_groups=1, max_group_s=20.0
+            )
+            per_group: dict[str, float] = {}
+            for c in evaluation:
+                per_group[c.group] = per_group.get(c.group, 0.0) + c.duration_hint
+            assert sum(min(v, 20.0) for v in per_group.values()) >= 60.0
+
+    def test_min_groups_must_leave_a_train_side(self) -> None:
+        with pytest.raises(ValueError, match="enough"):
+            split_groups(pool(3, 5, [4.0]), 10.0, random.Random(0), min_groups=3)
 
 
 class TestSelectByMinutes:
     def test_reaches_target_without_overshooting_by_more_than_one_clip(self) -> None:
         chosen = select_by_minutes(
-            pool(10, 30, [3.0, 8.0, 20.0]), 300.0, BUCKETS, SHARES, random.Random(0)
+            pool(10, 30, [3.0, 8.0, 20.0]),
+            300.0,
+            BUCKETS,
+            SHARES,
+            random.Random(0),
+            max_group_s=None,
         )
         total = sum(c.duration_hint for c in chosen)
         assert 300.0 <= total < 300.0 + 20.0
 
     def test_follows_bucket_shares_when_available(self) -> None:
         chosen = select_by_minutes(
-            pool(10, 30, [3.0, 8.0, 20.0]), 600.0, BUCKETS, SHARES, random.Random(0)
+            pool(10, 30, [3.0, 8.0, 20.0]),
+            600.0,
+            BUCKETS,
+            SHARES,
+            random.Random(0),
+            max_group_s=None,
         )
         long_s = sum(c.duration_hint for c in chosen if c.duration_hint >= 15)
         assert long_s == pytest.approx(0.25 * 600.0, abs=20.0)
 
     def test_tops_up_from_other_buckets_when_one_is_empty(self) -> None:
         chosen = select_by_minutes(
-            pool(10, 30, [3.0, 8.0]), 300.0, BUCKETS, SHARES, random.Random(0)
+            pool(10, 30, [3.0, 8.0]), 300.0, BUCKETS, SHARES, random.Random(0), max_group_s=None
         )
         assert sum(c.duration_hint for c in chosen) >= 300.0
 
     def test_returns_everything_when_pool_is_short(self) -> None:
         small = pool(1, 3, [3.0])
         assert sorted(
-            select_by_minutes(small, 300.0, BUCKETS, SHARES, random.Random(0)), key=str
+            select_by_minutes(small, 300.0, BUCKETS, SHARES, random.Random(0), max_group_s=None),
+            key=str,
         ) == sorted(small, key=str)
 
     def test_no_duplicates(self) -> None:
         chosen = select_by_minutes(
-            pool(10, 30, [3.0, 8.0, 20.0]), 600.0, BUCKETS, SHARES, random.Random(0)
+            pool(10, 30, [3.0, 8.0, 20.0]),
+            600.0,
+            BUCKETS,
+            SHARES,
+            random.Random(0),
+            max_group_s=None,
         )
         assert len({c.key for c in chosen}) == len(chosen)
+
+
+class TestGroupCap:
+    def test_no_group_exceeds_the_cap(self) -> None:
+        big = [cand(f"big-{i}", 3.0, group="big") for i in range(40)]
+        others = [cand(f"o{g}-{i}", 3.0, group=f"o{g}") for g in range(4) for i in range(10)]
+        chosen = select_by_minutes(
+            big + others, 120.0, BUCKETS, SHARES, random.Random(0), max_group_s=40.0
+        )
+        per_group: dict[str, float] = {}
+        for c in chosen:
+            per_group[c.group] = per_group.get(c.group, 0.0) + c.duration_hint
+        assert max(per_group.values()) <= 40.0
+        assert sum(per_group.values()) >= 120.0
+
+    def test_cap_also_limits_the_top_up(self) -> None:
+        only_big = [cand(f"big-{i}", 5.0, group="big") for i in range(20)]
+        chosen = select_by_minutes(
+            only_big, 60.0, BUCKETS, SHARES, random.Random(0), max_group_s=30.0
+        )
+        assert sum(c.duration_hint for c in chosen) <= 30.0
 
 
 def test_clip_filename_is_flat_and_safe() -> None:
@@ -145,6 +205,8 @@ def small_config(output_dir: Path) -> DataConfig:
             "buckets": [{"name": b.name, "min_s": b.min_s, "max_s": b.max_s} for b in BUCKETS],
             "bucket_shares": SHARES,
             "eval_pool_factor": 2.0,
+            "eval_min_groups": 1,
+            "eval_max_group_share": 1.0,
             "output_dir": str(output_dir),
             "sources": {
                 "shared": {**fleurs, "split": "a"},
@@ -272,3 +334,21 @@ class TestEvalPoolFactorOverride:
 
     def test_category_override_leaves_train_its_quota(self, tmp_path: Path) -> None:
         assert self.train_seconds(self.config(tmp_path, 1.0)) >= 30.0
+
+
+class TestEvalSpread:
+    def test_eval_plan_spreads_across_speakers(self, tmp_path: Path) -> None:
+        raw = small_config(tmp_path).model_dump(mode="json")
+        raw["eval_min_groups"], raw["eval_max_group_share"] = 3, 0.4
+        cfg = DataConfig.model_validate(raw)
+        # One speaker could fill the whole eval quota alone.
+        big = [cand(f"big-{i}", 6.0, group="big") for i in range(30)]
+        small = [cand(f"s{g}-{i}", 6.0, group=f"s{g}") for g in range(8) for i in range(4)]
+        sources = {**fake_sources(), "shared": FakeSource(big + small)}
+        plans = build_dataset(cfg, sources, record(), dry_run=True)
+        evaluation = next(p for p in plans if (p.split, p.category) == ("eval", "mixed"))
+        per_group: dict[str, float] = {}
+        for c in evaluation.clips:
+            per_group[c.group] = per_group.get(c.group, 0.0) + c.duration_hint
+        assert len(per_group) >= 3
+        assert max(per_group.values()) <= 0.4 * evaluation.target_s
