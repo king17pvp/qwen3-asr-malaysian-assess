@@ -1,0 +1,74 @@
+# Dataset build: ~35 min train, ~12 min held-out eval, 5 min LibriSpeech control.
+seed: 20260925
+sample_rate: 16000
+min_duration_s: 2.0      # clips under 2 s are too short to be useful (was 1 s in the brief)
+max_duration_s: 30.0
+min_words: 2             # drops pseudolabel fragments such as a lone "so"
+buckets:
+  - {name: "2-5", min_s: 2.0, max_s: 5.0}
+  - {name: "5-15", min_s: 5.0, max_s: 15.0}
+  - {name: "15-30", min_s: 15.0, max_s: 30.0}
+# Target share of each quota's minutes per bucket; a short bucket is topped up from the others.
+bucket_shares: {"2-5": 0.3, "5-15": 0.45, "15-30": 0.25}
+# When train and eval share a source, eval groups are drawn until the eval pool holds
+# this many times the eval quota, leaving room for the bucket spread.
+eval_pool_factor: 3.0
+output_dir: data
+
+sources:
+  # Manglish / code-switched YouTube speech. Parquet rows are text only; audio is read
+  # member-by-member from the zips with HTTP range requests (no full download).
+  mesolitica_context:
+    kind: mesolitica_context
+    repo: mesolitica/Malaysian-STT-Whisper
+    parquet: data/malaysian_context_v2-00000-of-00001.parquet
+    row_group: 0
+    zips: [prepared-pseudolabel-chunks-0-0.zip]
+    index_repo: mesolitica/pseudolabel-malaysian-youtube-whisper-large-v3-timestamp
+    index_path: prepared-pseudolabel.jsonl
+    index_bytes: 35000000   # ~53k index lines, ~800 videos
+    # Some upstream videos are Indonesian speech tagged as Malay. Each video is scored on its
+    # whole transcript; at 0.2 the ~16 Indonesian videos go, at the cost of ~1 Malaysian one.
+    indonesian_max_share: 0.2
+    indonesian_min_hits: 10
+  # Malay Conversational Speech Corpus rows of the `extra` split, with speaker ids.
+  malay_conversational:
+    kind: mesolitica_conversational
+    repo: mesolitica/Malaysian-STT-Whisper
+    parquet: data/extra-00000-of-00001.parquet
+    zip: extra.zip
+    prefix: malay-conversational-speech-corpus-whisper-format/
+    speakers_repo: malaysia-ai/malay-conversational-speech-corpus
+    speakers_parquet: data/train-00000-of-00001-6a2e690109871f73.parquet
+  # FLEURS has no speaker ids; train and eval come from different official splits.
+  fleurs_ms_validation: {kind: fleurs, repo: google/fleurs, revision: refs/convert/parquet, config: ms_my, split: validation}
+  fleurs_ms_test: {kind: fleurs, repo: google/fleurs, revision: refs/convert/parquet, config: ms_my, split: test}
+  fleurs_en_validation: {kind: fleurs, repo: google/fleurs, revision: refs/convert/parquet, config: en_us, split: validation}
+  fleurs_en_test: {kind: fleurs, repo: google/fleurs, revision: refs/convert/parquet, config: en_us, split: test}
+  librispeech_test_clean:
+    kind: librispeech
+    repo: openslr/librispeech_asr
+    parquet: clean/test/0000.parquet
+    row_groups: [0, 5, 10, 15, 20, 25]   # 100 utterances each, several speakers
+
+categories:
+  - name: manglish          # mixed-language clips use `language None`
+    language: null
+    train: {source: mesolitica_context, minutes: 20}
+    eval: {source: mesolitica_context, minutes: 6}
+  - name: malay_conversational
+    language: Malay
+    train: {source: malay_conversational, minutes: 5}
+    eval: {source: malay_conversational, minutes: 2}
+    # Only ~11.5 usable min from 10 speakers: a smaller eval pool leaves train its 5 min.
+    eval_pool_factor: 1.5
+  - name: malay_read
+    language: Malay
+    train: {source: fleurs_ms_validation, minutes: 5}
+    eval: {source: fleurs_ms_test, minutes: 2}
+  - name: english_read
+    language: English
+    train: {source: fleurs_en_validation, minutes: 5}
+    eval: {source: fleurs_en_test, minutes: 2}
+
+control: {source: librispeech_test_clean, minutes: 5, language: English}
