@@ -49,3 +49,13 @@ def test_import_does_not_load_heavy_dependencies() -> None:
         "sys.exit(len(heavy))"
     )
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
+
+
+def test_check_config_accepts_inference_configs() -> None:
+    for kind, path in [
+        ("engine", "engines/hf_base.yaml"),
+        ("eval", "eval.yaml"),
+        ("bench", "bench.yaml"),
+    ]:
+        result = runner.invoke(app, ["check-config", kind, str(CONFIGS / path)])
+        assert result.exit_code == 0, result.output

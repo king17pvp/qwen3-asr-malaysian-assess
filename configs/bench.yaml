@@ -1,0 +1,8 @@
+# Single-stream RTF per duration bucket (batch 1, one request at a time).
+manifest: data/manifests/eval.jsonl
+clips_per_bucket: 20     # all clips are used when a bucket has fewer
+warmup_requests: 5       # discarded: first calls pay CUDA init and kernel selection
+repeats: 3
+seed: 1234
+sample_rate: 16000
+output_dir: results/bench

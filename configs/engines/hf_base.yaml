@@ -1,0 +1,9 @@
+# Baseline: plain Transformers, one request at a time. Attention is pinned to eager so the
+# "SDPA" step of the optimization journey is a measured change, not a hidden default.
+kind: hf
+model_id: Qwen/Qwen3-ASR-1.7B-hf
+dtype: bfloat16
+device: cuda
+attn_implementation: eager
+max_new_tokens: 256      # ~30 s of fast speech is ~100 words; hits are flagged per clip
+language_hint: auto      # no hint, as a real deployment would run; `manifest` for ablations

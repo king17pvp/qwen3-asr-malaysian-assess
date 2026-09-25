@@ -12,7 +12,10 @@ import typer
 from pydantic import ValidationError
 
 from asr_assess.core.config import (
+    BenchConfig,
     DataConfig,
+    EngineConfig,
+    EvalConfig,
     LoadTestConfig,
     LoraTrainConfig,
     StrictModel,
@@ -35,12 +38,18 @@ class ConfigKind(StrEnum):
     data = "data"
     lora = "lora"
     loadtest = "loadtest"
+    engine = "engine"
+    eval = "eval"
+    bench = "bench"
 
 
 CONFIG_MODELS: dict[ConfigKind, type[StrictModel]] = {
     ConfigKind.data: DataConfig,
     ConfigKind.lora: LoraTrainConfig,
     ConfigKind.loadtest: LoadTestConfig,
+    ConfigKind.engine: EngineConfig,
+    ConfigKind.eval: EvalConfig,
+    ConfigKind.bench: BenchConfig,
 }
 DATA_PACKAGES = ["numpy", "soundfile", "librosa", "huggingface-hub", "pyarrow"]
 
