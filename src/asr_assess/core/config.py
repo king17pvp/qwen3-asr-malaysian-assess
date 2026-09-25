@@ -255,3 +255,51 @@ class LoadTestConfig(StrictModel):
         if any(b <= a for a, b in pairwise(levels)):
             raise ValueError("concurrency_levels must be strictly ascending")
         return self
+
+
+# ---------------------------------------------------------------- inference
+
+# auto: the model detects the language; manifest: force each clip's manifest language.
+LanguageHint = Literal["auto", "manifest"]
+
+
+class EngineConfig(StrictModel):
+    """configs/engines/*.yaml: which ASR backend to run and how to load it."""
+
+    kind: Literal["hf"]
+    model_id: str
+    dtype: Literal["bfloat16", "float16", "float32"]
+    device: str
+    attn_implementation: Literal["eager", "sdpa", "flash_attention_2"]
+    max_new_tokens: PositiveInt
+    language_hint: LanguageHint
+
+
+class BootstrapSettings(StrictModel):
+    """Percentile bootstrap over utterances for WER/CER confidence intervals."""
+
+    n_resamples: PositiveInt
+    confidence: float = Field(gt=0.0, lt=1.0)
+    seed: int
+
+
+class EvalConfig(StrictModel):
+    """configs/eval.yaml: WER/CER evaluation of an engine over named manifests."""
+
+    manifests: dict[str, Path] = Field(min_length=1)
+    batch_size: PositiveInt
+    sample_rate: PositiveInt
+    bootstrap: BootstrapSettings
+    output_dir: Path
+
+
+class BenchConfig(StrictModel):
+    """configs/bench.yaml: single-stream RTF per duration bucket."""
+
+    manifest: Path
+    clips_per_bucket: PositiveInt
+    warmup_requests: int = Field(ge=0)
+    repeats: PositiveInt
+    seed: int
+    sample_rate: PositiveInt
+    output_dir: Path

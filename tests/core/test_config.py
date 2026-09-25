@@ -6,7 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from asr_assess.core.config import (
+    BenchConfig,
     DataConfig,
+    EngineConfig,
+    EvalConfig,
     LoadTestConfig,
     LoraTrainConfig,
     StrictModel,
@@ -116,3 +119,27 @@ class TestLoadTestValidation:
         cfg["thresholds"]["p95_rtf_strong"] = 0.6
         with pytest.raises(ValidationError, match="p95_rtf_strong"):
             LoadTestConfig.model_validate(cfg)
+
+
+class TestInferenceConfigs:
+    def test_baseline_engine_is_plain_transformers(self) -> None:
+        cfg = load_config(CONFIGS / "engines" / "hf_base.yaml", EngineConfig)
+        assert (cfg.kind, cfg.model_id) == ("hf", "Qwen/Qwen3-ASR-1.7B-hf")
+        assert cfg.attn_implementation == "eager"
+        assert cfg.language_hint == "auto"
+
+    def test_eval_config_is_batch_one_over_eval_and_control(self) -> None:
+        cfg = load_config(CONFIGS / "eval.yaml", EvalConfig)
+        assert cfg.batch_size == 1
+        assert set(cfg.manifests) == {"eval", "control"}
+        assert 0 < cfg.bootstrap.confidence < 1
+
+    def test_bench_config_loads(self) -> None:
+        cfg = load_config(CONFIGS / "bench.yaml", BenchConfig)
+        assert cfg.clips_per_bucket > 0 and cfg.repeats > 0
+
+    def test_confidence_must_be_a_probability(self) -> None:
+        raw = load_config(CONFIGS / "eval.yaml", EvalConfig).model_dump()
+        raw["bootstrap"]["confidence"] = 1.5
+        with pytest.raises(ValidationError):
+            EvalConfig.model_validate(raw)

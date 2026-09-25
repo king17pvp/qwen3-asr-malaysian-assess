@@ -1,0 +1,11 @@
+# WER/CER of an engine over the held-out eval set and the LibriSpeech control set.
+manifests:
+  eval: data/manifests/eval.jsonl
+  control: data/manifests/control.jsonl
+batch_size: 1            # the baseline is batch 1; batching is an optimization step
+sample_rate: 16000
+bootstrap:
+  n_resamples: 1000
+  confidence: 0.95
+  seed: 0
+output_dir: results/eval

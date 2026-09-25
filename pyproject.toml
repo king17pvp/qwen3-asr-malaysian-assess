@@ -134,4 +134,5 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q"
+addopts = "-q -m 'not model'"
+markers = ["model: loads the real Qwen3-ASR checkpoint (needs the train extra; slow)"]

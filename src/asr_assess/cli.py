@@ -12,13 +12,17 @@ import typer
 from pydantic import ValidationError
 
 from asr_assess.core.config import (
+    BenchConfig,
     DataConfig,
+    EngineConfig,
+    EvalConfig,
     LoadTestConfig,
     LoraTrainConfig,
     StrictModel,
     load_config,
 )
 from asr_assess.core.logging import setup_logging
+from asr_assess.core.manifest import read_manifest
 from asr_assess.core.run_record import collect_run_record
 
 log = logging.getLogger(__name__)
@@ -35,12 +39,18 @@ class ConfigKind(StrEnum):
     data = "data"
     lora = "lora"
     loadtest = "loadtest"
+    engine = "engine"
+    eval = "eval"
+    bench = "bench"
 
 
 CONFIG_MODELS: dict[ConfigKind, type[StrictModel]] = {
     ConfigKind.data: DataConfig,
     ConfigKind.lora: LoraTrainConfig,
     ConfigKind.loadtest: LoadTestConfig,
+    ConfigKind.engine: EngineConfig,
+    ConfigKind.eval: EvalConfig,
+    ConfigKind.bench: BenchConfig,
 }
 DATA_PACKAGES = ["numpy", "soundfile", "librosa", "huggingface-hub", "pyarrow"]
 
@@ -86,3 +96,80 @@ def data(
         raise typer.Exit(code=1) from err
     record = collect_run_record(cfg, packages=DATA_PACKAGES, repo=Path.cwd())
     build_dataset(cfg, sources, record, dry_run=dry_run)
+
+
+INFERENCE_PACKAGES = ["torch", "transformers", "numpy", "jiwer", "soundfile"]
+
+
+class EvalRun(StrictModel):
+    """Everything that determines an eval result; stamped into metrics.json."""
+
+    engine: EngineConfig
+    eval: EvalConfig
+    manifest: str
+    limit: int | None
+
+
+class BenchRun(StrictModel):
+    """Everything that determines an offline benchmark result; stamped into summary.json."""
+
+    engine: EngineConfig
+    bench: BenchConfig
+    smoke: bool
+
+
+EngineOption = Annotated[Path, typer.Option(exists=True, dir_okay=False, help="Engine YAML.")]
+
+
+@app.command("eval")
+def eval_command(
+    engine: EngineOption,
+    config: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path("configs/eval.yaml"),
+    manifest: Annotated[str, typer.Option(help="Key in the config's manifests.")] = "eval",
+    limit: Annotated[int | None, typer.Option(min=1, help="Only the first N clips.")] = None,
+    run_name: Annotated[str | None, typer.Option(help="Default: <engine>-<manifest>.")] = None,
+) -> None:
+    """WER/CER of an engine over a manifest (needs the `train` extra for the HF engine)."""
+    from asr_assess.evaluation.evaluate import evaluate
+    from asr_assess.inference import factory
+
+    run = EvalRun(
+        engine=load_config(engine, EngineConfig),
+        eval=load_config(config, EvalConfig),
+        manifest=manifest,
+        limit=limit,
+    )
+    if manifest not in run.eval.manifests:
+        log.error("Unknown manifest %r; choose from %s", manifest, sorted(run.eval.manifests))
+        raise typer.Exit(code=1)
+    entries = read_manifest(run.eval.manifests[manifest])[:limit]
+    out_dir = run.eval.output_dir / (run_name or f"{engine.stem}-{manifest}")
+    record = collect_run_record(run, packages=INFERENCE_PACKAGES, repo=Path.cwd())
+    asr = factory.make_engine(run.engine)
+    evaluate(asr, entries, run.eval, run.engine.language_hint, out_dir, record)
+
+
+@app.command()
+def bench(
+    engine: EngineOption,
+    config: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path("configs/bench.yaml"),
+    smoke: Annotated[bool, typer.Option(help="2 clips per bucket, 1 repeat, 1 warm-up.")] = False,
+    run_name: Annotated[str | None, typer.Option(help="Default: <engine>-offline.")] = None,
+) -> None:
+    """Single-stream RTF per duration bucket (needs the `train` extra for the HF engine)."""
+    from asr_assess.benchmark.env_info import collect_env_info
+    from asr_assess.benchmark.offline import run_offline
+    from asr_assess.inference import factory
+
+    bench_cfg = load_config(config, BenchConfig)
+    if smoke:
+        bench_cfg = bench_cfg.model_copy(
+            update={"clips_per_bucket": 2, "repeats": 1, "warmup_requests": 1}
+        )
+    run = BenchRun(engine=load_config(engine, EngineConfig), bench=bench_cfg, smoke=smoke)
+    out_dir = bench_cfg.output_dir / (run_name or f"{engine.stem}-offline")
+    record = collect_run_record(run, packages=INFERENCE_PACKAGES, repo=Path.cwd())
+    env = collect_env_info(INFERENCE_PACKAGES)
+    asr = factory.make_engine(run.engine)
+    entries = read_manifest(bench_cfg.manifest)
+    run_offline(asr, entries, bench_cfg, run.engine.language_hint, out_dir, record, env)
