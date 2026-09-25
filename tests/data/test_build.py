@@ -352,3 +352,37 @@ class TestEvalSpread:
             per_group[c.group] = per_group.get(c.group, 0.0) + c.duration_hint
         assert len(per_group) >= 3
         assert max(per_group.values()) <= 0.4 * evaluation.target_s
+
+
+class TestStaleAudio:
+    def stale(self, tmp_path: Path) -> Path:
+        path = tmp_path / "audio" / "train" / "old_category" / "removed-clip.wav"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"old")
+        return path
+
+    def test_build_removes_audio_no_manifest_references(self, tmp_path: Path) -> None:
+        stale = self.stale(tmp_path)
+        build_dataset(small_config(tmp_path), fake_sources(), record(), dry_run=False)
+        assert not stale.exists()
+        assert not stale.parent.exists()  # emptied folders go too
+        entries = [
+            e
+            for split in ("train", "eval", "control")
+            for e in read_manifest(tmp_path / "manifests" / f"{split}.jsonl")
+        ]
+        assert all(Path(e.audio).exists() for e in entries)
+
+    def test_dry_run_keeps_existing_audio(self, tmp_path: Path) -> None:
+        stale = self.stale(tmp_path)
+        build_dataset(small_config(tmp_path), fake_sources(), record(), dry_run=True)
+        assert stale.exists()
+
+    def test_only_wavs_under_the_audio_folder_are_touched(self, tmp_path: Path) -> None:
+        notes = tmp_path / "audio" / "README.txt"
+        outside = tmp_path / "elsewhere.wav"
+        notes.parent.mkdir(parents=True)
+        notes.write_text("keep", encoding="utf-8")
+        outside.write_bytes(b"keep")
+        build_dataset(small_config(tmp_path), fake_sources(), record(), dry_run=False)
+        assert notes.exists() and outside.exists()

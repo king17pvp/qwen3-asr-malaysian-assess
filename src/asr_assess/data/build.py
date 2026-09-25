@@ -251,7 +251,25 @@ def build_dataset(
     for split, entries in by_split.items():
         write_manifest(manifest_dir / f"{split}.jsonl", entries)
     _write_stats(manifest_dir / "stats.json", cfg, record, plans, by_split)
+    # Only after the new manifests exist: a failed build must not strand the old dataset.
+    keep = {Path(e.audio) for entries in by_split.values() for e in entries}
+    removed = remove_unreferenced_audio(cfg.output_dir / "audio", keep)
+    if removed:
+        log.info("Removed %d WAVs left over from earlier builds", removed)
     return plans
+
+
+def remove_unreferenced_audio(audio_dir: Path, keep: set[Path]) -> int:
+    """Delete WAVs under ``audio_dir`` not in ``keep``, then any folders left empty."""
+    kept = {path.resolve() for path in keep}
+    stale = [p for p in audio_dir.rglob("*.wav") if p.resolve() not in kept]
+    for path in stale:
+        path.unlink()
+    folders = sorted((p for p in audio_dir.rglob("*") if p.is_dir()), key=lambda p: -len(p.parts))
+    for folder in folders:
+        if not any(folder.iterdir()):
+            folder.rmdir()
+    return len(stale)
 
 
 def _log_plans(plans: Sequence[SplitPlan]) -> None:

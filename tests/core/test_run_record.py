@@ -41,9 +41,23 @@ class TestGitState:
         assert commit is not None and len(commit) == 40
         assert dirty is False
 
-    def test_untracked_file_marks_dirty(self, tmp_path: Path) -> None:
+    def test_untracked_file_does_not_mark_dirty(self, tmp_path: Path) -> None:
+        # Untracked notes or data cannot change what the committed code does.
         init_repo(tmp_path)
-        (tmp_path / "new.txt").write_text("x", encoding="utf-8")
+        (tmp_path / "notes.md").write_text("x", encoding="utf-8")
+        assert git_state(tmp_path)[1] is False
+
+    def test_modified_tracked_file_marks_dirty(self, tmp_path: Path) -> None:
+        init_repo(tmp_path)
+        tracked = tmp_path / "code.py"
+        tracked.write_text("a = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "code.py"], cwd=tmp_path, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c"],
+            cwd=tmp_path,
+            check=True,
+        )
+        tracked.write_text("a = 2\n", encoding="utf-8")
         assert git_state(tmp_path)[1] is True
 
     def test_outside_a_repo(self, tmp_path: Path) -> None:
