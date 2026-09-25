@@ -1,5 +1,6 @@
 """Audio I/O at a fixed sample rate, and duration bucketing."""
 
+import io
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,16 @@ def assign_bucket(duration: float, buckets: Sequence[Bucket]) -> str | None:
 
 def load_audio(path: Path, sample_rate: int) -> Samples:
     """Load an audio file as mono float32 at ``sample_rate``."""
-    data, source_rate = sf.read(path, dtype="float32", always_2d=True)
+    return _read_mono(path, sample_rate)
+
+
+def decode_audio(data: bytes, sample_rate: int) -> Samples:
+    """Decode in-memory audio (WAV, FLAC, MP3, ...) as mono float32 at ``sample_rate``."""
+    return _read_mono(io.BytesIO(data), sample_rate)
+
+
+def _read_mono(source: Path | io.BytesIO, sample_rate: int) -> Samples:
+    data, source_rate = sf.read(source, dtype="float32", always_2d=True)
     mono = data.mean(axis=1)
     if source_rate != sample_rate:
         import librosa  # slow import; only paid when resampling is needed
