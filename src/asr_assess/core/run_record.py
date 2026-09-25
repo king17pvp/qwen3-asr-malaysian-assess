@@ -35,11 +35,14 @@ def config_hash(config: BaseModel) -> str:
 
 
 def git_state(repo: Path) -> tuple[str | None, bool]:
-    """HEAD commit and whether the working tree has changes; (None, False) outside a repo."""
+    """HEAD commit and whether tracked files have changes; (None, False) outside a repo.
+
+    Untracked files (notes, data) are ignored: they cannot change what the committed code does.
+    """
     commit = _run(["git", "-C", str(repo), "rev-parse", "HEAD"])
     if commit is None:
         return None, False
-    status = _run(["git", "-C", str(repo), "status", "--porcelain"])
+    status = _run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"])
     return commit, bool(status)
 
 
