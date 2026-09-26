@@ -1,5 +1,5 @@
 # Thin aliases for `uv run asr-assess ...`; stage targets are added with their stages.
-.PHONY: help install check-configs data data-plan eval-base bench-base test lint format
+.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge eval-ft test lint format
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -29,6 +29,19 @@ eval-base: ## Baseline WER/CER on eval and control (GPU box, train extra)
 
 bench-base: ## Baseline single-stream RTF per bucket (GPU box, train extra)
 	uv run --extra train asr-assess bench --engine configs/engines/hf_base.yaml
+
+train-smoke: ## Two LoRA steps on a few clips: run first on a new GPU box (train extra)
+	uv run --extra train asr-assess train --smoke
+
+train: ## Decoder-only LoRA fine-tuning; best epoch by dev loss (GPU box, train extra)
+	uv run --extra train asr-assess train
+
+merge: ## Merge the best adapter, verify weight deltas, reload + transcribe (train extra)
+	uv run --extra train asr-assess merge --engine configs/engines/hf_ft.yaml
+
+eval-ft: ## Fine-tuned WER/CER on eval and control, same settings as eval-base
+	uv run --extra train asr-assess eval --engine configs/engines/hf_ft.yaml --manifest eval
+	uv run --extra train asr-assess eval --engine configs/engines/hf_ft.yaml --manifest control
 
 test: ## CPU-only test suite
 	uv run pytest

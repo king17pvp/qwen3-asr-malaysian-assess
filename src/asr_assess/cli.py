@@ -173,3 +173,67 @@ def bench(
     asr = factory.make_engine(run.engine)
     entries = read_manifest(bench_cfg.manifest)
     run_offline(asr, entries, bench_cfg, run.engine.language_hint, out_dir, record, env)
+
+
+TRAIN_PACKAGES = [
+    "torch",
+    "transformers",
+    "peft",
+    "accelerate",
+    "safetensors",
+    "numpy",
+    "soundfile",
+]
+LoraOption = Annotated[Path, typer.Option(exists=True, dir_okay=False, help="LoRA YAML.")]
+
+
+class TrainRun(StrictModel):
+    """Everything that determines a training run; stamped into train_summary.json."""
+
+    lora: LoraTrainConfig
+    smoke: bool
+
+
+class MergeRun(StrictModel):
+    """Everything that determines a merge; stamped into merge_summary.json."""
+
+    lora: LoraTrainConfig
+    engine: EngineConfig
+    run_name: str
+
+
+@app.command()
+def train(
+    config: LoraOption = Path("configs/lora.yaml"),
+    smoke: Annotated[
+        bool, typer.Option(help="A few clips and steps (see `smoke` in the config).")
+    ] = False,
+    run_name: Annotated[
+        str | None, typer.Option(help="Default: <config> or <config>-smoke.")
+    ] = None,
+) -> None:
+    """Decoder-only LoRA fine-tuning; keeps the best epoch by dev loss (needs the `train` extra)."""
+    from asr_assess.training import trainer
+
+    cfg = load_config(config, LoraTrainConfig)
+    name = run_name or (f"{config.stem}-smoke" if smoke else config.stem)
+    record = collect_run_record(TrainRun(lora=cfg, smoke=smoke), TRAIN_PACKAGES, Path.cwd())
+    trainer.run_training(cfg, name, smoke, record)
+
+
+@app.command()
+def merge(
+    engine: EngineOption,
+    config: LoraOption = Path("configs/lora.yaml"),
+    run_name: Annotated[
+        str | None, typer.Option(help="The training run. Default: <config>.")
+    ] = None,
+) -> None:
+    """Merge a run's best adapter, verify the weight deltas, reload and transcribe dev clips."""
+    from asr_assess.training import export
+
+    cfg, engine_cfg = load_config(config, LoraTrainConfig), load_config(engine, EngineConfig)
+    name = run_name or config.stem
+    run = MergeRun(lora=cfg, engine=engine_cfg, run_name=name)
+    record = collect_run_record(run, TRAIN_PACKAGES, Path.cwd())
+    export.run_merge(cfg, engine_cfg, name, record)
