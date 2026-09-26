@@ -16,6 +16,7 @@ from asr_assess.core.config import DataConfig
 from asr_assess.core.manifest import read_manifest
 from asr_assess.core.run_record import RunRecord
 from asr_assess.data.build import (
+    SplitPlan,
     build_dataset,
     clip_filename,
     dev_pool,
@@ -415,3 +416,76 @@ class TestStaleAudio:
         outside.write_bytes(b"keep")
         build_dataset(small_config(tmp_path), fake_sources(), record(), dry_run=False)
         assert notes.exists() and outside.exists()
+
+
+# ---------------------------------------------------------------- dev split
+
+
+def with_dev(cfg: DataConfig, mixed: float | None = 0.25, read: float | None = 0.1) -> DataConfig:
+    raw = cfg.model_dump(mode="json")
+    raw["categories"][0]["dev_minutes"] = mixed
+    raw["categories"][1]["dev_minutes"] = read
+    return DataConfig.model_validate(raw)
+
+
+def plan_keys(plans: Sequence[SplitPlan], split: str) -> dict[str, list[str]]:
+    return {p.category: [c.key for c in p.clips] for p in plans if p.split == split}
+
+
+class TestDevSplit:
+    def test_dev_does_not_change_other_splits(self, tmp_path: Path) -> None:
+        base = build_dataset(small_config(tmp_path), fake_sources(), record(), dry_run=True)
+        dev = build_dataset(
+            with_dev(small_config(tmp_path)), fake_sources(), record(), dry_run=True
+        )
+        for split in ("train", "eval", "control"):
+            assert plan_keys(dev, split) == plan_keys(base, split), split
+
+    def test_dev_is_clip_disjoint_from_train_and_group_disjoint_when_possible(
+        self, tmp_path: Path
+    ) -> None:
+        plans = build_dataset(
+            with_dev(small_config(tmp_path)), fake_sources(), record(), dry_run=True
+        )
+        train = next(p for p in plans if (p.split, p.category) == ("train", "mixed"))
+        dev = next(p for p in plans if (p.split, p.category) == ("dev", "mixed"))
+        assert dev.clips
+        assert {c.key for c in dev.clips}.isdisjoint({c.key for c in train.clips})
+        if not dev.shares_groups_with_train:
+            assert {c.group for c in dev.clips}.isdisjoint({c.group for c in train.clips})
+
+    def test_dev_draws_from_the_train_source(self, tmp_path: Path) -> None:
+        plans = build_dataset(
+            with_dev(small_config(tmp_path)), fake_sources(), record(), dry_run=True
+        )
+        dev = next(p for p in plans if (p.split, p.category) == ("dev", "read"))
+        assert dev.source == "read_train"
+
+    def test_writes_dev_manifest_and_overlap_stats(self, tmp_path: Path) -> None:
+        build_dataset(with_dev(small_config(tmp_path)), fake_sources(), record(), dry_run=False)
+        dev = read_manifest(tmp_path / "manifests" / "dev.jsonl")
+        train = read_manifest(tmp_path / "manifests" / "train.jsonl")
+        assert dev
+        assert {e.audio for e in dev}.isdisjoint({e.audio for e in train})
+        assert all("/dev/" in e.audio for e in dev)
+        stats = json.loads((tmp_path / "manifests" / "stats.json").read_text(encoding="utf-8"))
+        assert set(stats["splits"]) == {"train", "eval", "dev", "control"}
+        assert set(stats["dev_group_overlap"]) == {"mixed", "read"}
+
+    def test_no_dev_minutes_means_no_dev_split(self, tmp_path: Path) -> None:
+        cfg = with_dev(small_config(tmp_path), mixed=None, read=None)
+        plans = build_dataset(cfg, fake_sources(), record(), dry_run=True)
+        assert not [p for p in plans if p.split == "dev"]
+
+    def test_exhausted_category_warns_not_crashes(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # read_train holds 10 groups x 3 clips; a 10-minute train quota takes all of them.
+        raw = with_dev(small_config(tmp_path)).model_dump(mode="json")
+        raw["categories"][1]["train"]["minutes"] = 10.0
+        cfg = DataConfig.model_validate(raw)
+        plans = build_dataset(cfg, fake_sources(), record(), dry_run=True)
+        dev = next(p for p in plans if (p.split, p.category) == ("dev", "read"))
+        assert dev.clips == []
+        assert dev.shares_groups_with_train
+        assert "dev/read" in caplog.text

@@ -1,4 +1,4 @@
-"""Sample, clean, split (held out by speaker/video) and write the train/eval/control manifests."""
+"""Sample, clean, split by speaker/video and write the train/eval/dev/control manifests."""
 
 import json
 import logging
@@ -6,7 +6,7 @@ import random
 import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
 
 from asr_assess.core.audio import Bucket, assign_bucket, decode_audio, duration_s, write_wav
@@ -33,6 +33,7 @@ class SplitPlan:
     source: str
     target_s: float
     clips: list[Candidate]
+    shares_groups_with_train: bool = False  # dev only: no unused speaker/video was left
 
     @property
     def planned_s(self) -> float:
@@ -156,14 +157,20 @@ def clip_filename(key: str) -> str:
 
 
 def plan_dataset(cfg: DataConfig, sources: Mapping[str, ClipSource]) -> list[SplitPlan]:
-    """Choose every split's clips from metadata alone; each category has its own seeded RNG."""
+    """Choose every split's clips from metadata alone; each category has its own seeded RNG.
+
+    Dev is drawn after train and eval, so enabling it never changes their clips.
+    """
     usable = {name: _usable(cfg, source) for name, source in sources.items()}
     plans: list[SplitPlan] = []
     for cat in cfg.categories:
         rng = random.Random(f"{cfg.seed}:{cat.name}")
         train_pool, eval_pool = _category_pools(cfg, cat, usable, rng)
-        plans.append(_plan(cfg, "train", cat.name, cat.language, cat.train, train_pool, rng))
+        train = _plan(cfg, "train", cat.name, cat.language, cat.train, train_pool, rng)
+        plans.append(train)
         plans.append(_plan(cfg, "eval", cat.name, cat.language, cat.eval, eval_pool, rng))
+        if cat.dev_minutes is not None:
+            plans.append(_dev_plan(cfg, cat, cat.dev_minutes, train_pool, train, rng))
     control, rng = cfg.control, random.Random(f"{cfg.seed}:control")
     pool = usable[control.source]
     plans.append(_plan(cfg, "control", "control", control.language, control, pool, rng))
@@ -208,6 +215,22 @@ def _plan(
     max_group_s = target_s * cfg.eval_max_group_share if split == "eval" else None
     clips = select_by_minutes(pool, target_s, buckets, cfg.bucket_shares, rng, max_group_s)
     return SplitPlan(split, category, language, quota.source, target_s, clips)
+
+
+def _dev_plan(
+    cfg: DataConfig,
+    cat: CategorySpec,
+    minutes: float,
+    train_pool: Sequence[Candidate],
+    train: SplitPlan,
+    rng: random.Random,
+) -> SplitPlan:
+    quota = Quota(source=cat.train.source, minutes=minutes)
+    pool, overlap = dev_pool(train_pool, train.clips, minutes * 60)
+    if overlap:
+        log.warning("dev/%s shares speakers/videos with train: none unused were left", cat.name)
+    plan = _plan(cfg, "dev", cat.name, cat.language, quota, pool, rng)
+    return replace(plan, shares_groups_with_train=overlap)
 
 
 def materialize(plan: SplitPlan, source: ClipSource, cfg: DataConfig) -> list[ManifestEntry]:
@@ -312,5 +335,8 @@ def _write_stats(
         "record": record.model_dump(mode="json"),
         "splits": {split: asdict(summarize(entries)) for split, entries in by_split.items()},
         "groups": {f"{p.split}/{p.category}": len({c.group for c in p.clips}) for p in plans},
+        "dev_group_overlap": {
+            p.category: p.shares_groups_with_train for p in plans if p.split == "dev"
+        },
     }
     path.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
