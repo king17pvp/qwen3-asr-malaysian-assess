@@ -50,6 +50,8 @@ class TestShippedConfigs:
         assert cfg.optim.learning_rate == 1e-4
         assert cfg.optim.per_device_batch_size * cfg.optim.gradient_accumulation_steps == 16
         assert cfg.optim.num_epochs == 5
+        # Checkpoint selection uses dev; the reported eval set is never seen during training.
+        assert cfg.dev_manifest == Path("data/manifests/dev.jsonl")
 
     def test_loadtest_yaml_holds_the_spec_levels(self) -> None:
         cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)

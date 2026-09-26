@@ -1,7 +1,7 @@
 # Decoder-only LoRA fine-tuning of Qwen3-ASR-1.7B (audio encoder frozen).
 model_id: Qwen/Qwen3-ASR-1.7B-hf
 train_manifest: data/manifests/train.jsonl
-eval_manifest: data/manifests/eval.jsonl
+dev_manifest: data/manifests/dev.jsonl
 output_dir: checkpoints/lora
 seed: 42
 

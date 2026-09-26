@@ -204,7 +204,7 @@ class LoraTrainConfig(StrictModel):
 
     model_id: str
     train_manifest: Path
-    eval_manifest: Path
+    dev_manifest: Path  # picks the best epoch; eval.jsonl stays unseen until the final report
     output_dir: Path
     seed: int
     lora: LoraSettings
