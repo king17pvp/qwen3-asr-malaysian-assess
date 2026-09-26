@@ -50,6 +50,8 @@ class TestShippedConfigs:
         assert cfg.optim.learning_rate == 1e-4
         assert cfg.optim.per_device_batch_size * cfg.optim.gradient_accumulation_steps == 16
         assert cfg.optim.num_epochs == 5
+        # Checkpoint selection uses dev; the reported eval set is never seen during training.
+        assert cfg.dev_manifest == Path("data/manifests/dev.jsonl")
 
     def test_loadtest_yaml_holds_the_spec_levels(self) -> None:
         cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)
@@ -104,6 +106,29 @@ class TestDataConfig:
         raw = self.load()
         raw["categories"][0]["language"] = "Klingon"  # type: ignore[index]
         with pytest.raises(ValidationError, match="Klingon"):
+            DataConfig.model_validate(raw)
+
+    def test_shipped_yaml_has_the_dev_budget(self) -> None:
+        cfg = load_config(CONFIGS / "data.yaml", DataConfig)
+        dev = {c.name: c.dev_minutes for c in cfg.categories}
+        assert dev == {
+            "manglish": 2.0,
+            "malay_conversational": 0.5,
+            "malay_read": 0.5,
+            "english_read": 0.5,
+        }
+
+    def test_dev_minutes_is_optional(self) -> None:
+        raw = self.load()
+        for category in raw["categories"]:  # type: ignore[attr-defined]
+            category.pop("dev_minutes", None)
+        cfg = DataConfig.model_validate(raw)
+        assert all(c.dev_minutes is None for c in cfg.categories)
+
+    def test_dev_minutes_must_be_positive(self) -> None:
+        raw = self.load()
+        raw["categories"][0]["dev_minutes"] = 0  # type: ignore[index]
+        with pytest.raises(ValidationError, match="dev_minutes"):
             DataConfig.model_validate(raw)
 
 

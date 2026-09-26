@@ -1,4 +1,4 @@
-# Dataset build: ~35 min train, ~12 min held-out eval, 5 min LibriSpeech control.
+# Dataset build: ~35 min train, ~3.5 min dev, ~12 min held-out eval, 5 min LibriSpeech control.
 seed: 20260925
 sample_rate: 16000
 min_duration_s: 2.0      # clips under 2 s are too short to be useful (was 1 s in the brief)
@@ -60,19 +60,23 @@ categories:
     language: null
     train: {source: mesolitica_context, minutes: 20}
     eval: {source: mesolitica_context, minutes: 6}
+    dev_minutes: 2          # checkpoint selection only; drawn after train and eval
   - name: malay_conversational
     language: Malay
     train: {source: malay_conversational, minutes: 5}
     eval: {source: malay_conversational, minutes: 2}
+    dev_minutes: 0.5
     # Only ~11.5 usable min from 10 speakers: a smaller eval pool leaves train its 5 min.
     eval_pool_factor: 1.5
   - name: malay_read
     language: Malay
     train: {source: fleurs_ms_validation, minutes: 5}
     eval: {source: fleurs_ms_test, minutes: 2}
+    dev_minutes: 0.5
   - name: english_read
     language: English
     train: {source: fleurs_en_validation, minutes: 5}
     eval: {source: fleurs_en_test, minutes: 2}
+    dev_minutes: 0.5
 
 control: {source: librispeech_test_clean, minutes: 5, language: English}

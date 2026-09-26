@@ -15,13 +15,18 @@ uv run asr-assess data                 # write data/audio/**.wav + data/manifest
 Set `HF_TOKEN` in the environment to avoid Hub rate limits. Nothing is downloaded in full:
 the build reads parquet columns/row groups and single zip members with HTTP range requests.
 
-| Category | Train | Eval | Source | Held out by | Label |
-|---|---|---|---|---|---|
-| Manglish / code-switching | 20 min | 6 min | mesolitica/Malaysian-STT-Whisper `malaysian_context_v2` | YouTube video | `language None` |
-| Malay conversational | 5 min | 2 min | mesolitica/Malaysian-STT-Whisper `extra` (Malay Conversational Speech Corpus) | speaker | `language Malay` |
-| Malay read | 5 min | 2 min | FLEURS `ms_my` (train: validation, eval: test) | official split | `language Malay` |
-| English read | 5 min | 2 min | FLEURS `en_us` (train: validation, eval: test) | official split | `language English` |
-| Control | — | 5 min | LibriSpeech test-clean (never trained on) | — | `language English` |
+| Category | Train | Dev | Eval | Source | Held out by | Label |
+|---|---|---|---|---|---|---|
+| Manglish / code-switching | 20 min | 2 min | 6 min | mesolitica/Malaysian-STT-Whisper `malaysian_context_v2` | YouTube video | `language None` |
+| Malay conversational | 5 min | 0.5 min | 2 min | mesolitica/Malaysian-STT-Whisper `extra` (Malay Conversational Speech Corpus) | speaker | `language Malay` |
+| Malay read | 5 min | 0.5 min | 2 min | FLEURS `ms_my` (train/dev: validation, eval: test) | official split | `language Malay` |
+| English read | 5 min | 0.5 min | 2 min | FLEURS `en_us` (train/dev: validation, eval: test) | official split | `language English` |
+| Control | — | — | 5 min | LibriSpeech test-clean (never trained on) | — | `language English` |
+
+Dev is used only to pick the best fine-tuning epoch, so the eval set stays unseen until the
+final before/after comparison. It is drawn after train and eval from the train side, never
+reuses a train clip, and avoids train's speakers/videos where any are left
+(`dev_group_overlap` in `stats.json` flags the categories where none were).
 
 Clips are 2–30 s, resampled to 16 kHz mono and spread over the 2–5 / 5–15 / 15–30 s buckets.
 Sampling is seeded (`seed` in `configs/data.yaml`); `data/manifests/stats.json` records minutes per
