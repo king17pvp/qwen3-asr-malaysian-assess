@@ -106,15 +106,17 @@ class Quota(StrictModel):
 
 
 class CategorySpec(StrictModel):
-    """A language category with its train and held-out eval quotas.
+    """A language category with its train, held-out eval and optional dev quotas.
 
     When train and eval name the same source, whole speakers/videos go to one side only.
+    Dev draws from the train source and is used only to pick the best fine-tuning checkpoint.
     """
 
     name: str
     language: str | None
     train: Quota
     eval: Quota
+    dev_minutes: PositiveFloat | None = None
     eval_pool_factor: float | None = Field(default=None, ge=1.0)  # overrides the global one
 
 

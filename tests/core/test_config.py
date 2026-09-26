@@ -106,6 +106,29 @@ class TestDataConfig:
         with pytest.raises(ValidationError, match="Klingon"):
             DataConfig.model_validate(raw)
 
+    def test_shipped_yaml_has_the_dev_budget(self) -> None:
+        cfg = load_config(CONFIGS / "data.yaml", DataConfig)
+        dev = {c.name: c.dev_minutes for c in cfg.categories}
+        assert dev == {
+            "manglish": 2.0,
+            "malay_conversational": 0.5,
+            "malay_read": 0.5,
+            "english_read": 0.5,
+        }
+
+    def test_dev_minutes_is_optional(self) -> None:
+        raw = self.load()
+        for category in raw["categories"]:  # type: ignore[attr-defined]
+            category.pop("dev_minutes", None)
+        cfg = DataConfig.model_validate(raw)
+        assert all(c.dev_minutes is None for c in cfg.categories)
+
+    def test_dev_minutes_must_be_positive(self) -> None:
+        raw = self.load()
+        raw["categories"][0]["dev_minutes"] = 0  # type: ignore[index]
+        with pytest.raises(ValidationError, match="dev_minutes"):
+            DataConfig.model_validate(raw)
+
 
 class TestLoadTestValidation:
     def test_levels_must_be_strictly_ascending(self, tmp_path: Path) -> None:
