@@ -60,6 +60,7 @@ def test_check_config_accepts_inference_configs() -> None:
         ("engine", "engines/hf_base.yaml"),
         ("eval", "eval.yaml"),
         ("bench", "bench.yaml"),
+        ("engine", "engines/hf_ft.yaml"),
     ]:
         result = runner.invoke(app, ["check-config", kind, str(CONFIGS / path)])
         assert result.exit_code == 0, result.output

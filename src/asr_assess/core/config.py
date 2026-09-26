@@ -194,9 +194,19 @@ class OptimSettings(StrictModel):
     num_epochs: PositiveInt
     bf16: bool
     gradient_checkpointing: bool
-    eval_strategy: Literal["epoch", "steps"]
+    eval_strategy: Literal["epoch"]  # dev loss once per epoch; the best epoch is kept
     metric_for_best_model: str
     logging_steps: PositiveInt
+    save_total_limit: PositiveInt  # >= 2 keeps both the best and the latest checkpoint
+    dataloader_num_workers: int = Field(ge=0)
+
+
+class SmokeSettings(StrictModel):
+    """`train --smoke`: a few clips and steps to prove the pipeline before a full run."""
+
+    train_clips: PositiveInt
+    dev_clips: PositiveInt
+    max_steps: PositiveInt
 
 
 class LoraTrainConfig(StrictModel):
@@ -205,10 +215,17 @@ class LoraTrainConfig(StrictModel):
     model_id: str
     train_manifest: Path
     dev_manifest: Path  # picks the best epoch; eval.jsonl stays unseen until the final report
-    output_dir: Path
+    output_dir: Path  # Trainer checkpoints and the best adapter, per run
+    merged_dir: Path  # merged standalone checkpoints, per run
+    results_dir: Path  # train_summary.json and log_history.jsonl, per run
+    merge_results_dir: Path  # weight_deltas.json, smoke.jsonl, merge_summary.json, per run
+    sample_rate: PositiveInt
+    attn_implementation: Literal["eager", "sdpa", "flash_attention_2"]
+    smoke_clips: PositiveInt  # dev clips transcribed after merging
     seed: int
     lora: LoraSettings
     optim: OptimSettings
+    smoke: SmokeSettings
 
 
 # ---------------------------------------------------------------- load test

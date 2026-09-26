@@ -13,6 +13,7 @@ check-configs: ## Validate the shipped YAML configs
 	uv run asr-assess check-config lora configs/lora.yaml
 	uv run asr-assess check-config loadtest configs/loadtest.yaml
 	uv run asr-assess check-config engine configs/engines/hf_base.yaml
+	uv run asr-assess check-config engine configs/engines/hf_ft.yaml
 	uv run asr-assess check-config eval configs/eval.yaml
 	uv run asr-assess check-config bench configs/bench.yaml
 
