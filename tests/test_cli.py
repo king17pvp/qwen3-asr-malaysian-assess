@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 import pytest
@@ -60,6 +61,7 @@ def test_check_config_accepts_inference_configs() -> None:
         ("engine", "engines/hf_base.yaml"),
         ("eval", "eval.yaml"),
         ("bench", "bench.yaml"),
+        ("engine", "engines/hf_ft.yaml"),
     ]:
         result = runner.invoke(app, ["check-config", kind, str(CONFIGS / path)])
         assert result.exit_code == 0, result.output
@@ -122,3 +124,46 @@ def test_bench_command_writes_summary(workspace: Path) -> None:
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
     assert (workspace / "res" / "b1" / "summary.json").exists()
+
+
+LORA = str(CONFIGS / "lora.yaml")
+FT_ENGINE = str(CONFIGS / "engines" / "hf_ft.yaml")
+
+
+def test_train_and_merge_offer_help() -> None:
+    for command, flag in [("train", "--smoke"), ("merge", "--engine")]:
+        result = runner.invoke(app, [command, "--help"])
+        assert result.exit_code == 0
+        assert flag in click.unstyle(result.output)
+
+
+def test_train_calls_the_library_with_the_default_run_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr("asr_assess.training.trainer.run_training",
+                        lambda cfg, name, smoke, record: calls.append((name, smoke)))  # fmt: skip
+    assert runner.invoke(app, ["train", "--config", LORA]).exit_code == 0
+    assert runner.invoke(app, ["train", "--config", LORA, "--smoke"]).exit_code == 0
+    assert calls == [("lora", False), ("lora-smoke", True)]
+
+
+def test_train_stamps_the_config_into_the_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    records: list[Any] = []
+    monkeypatch.setattr("asr_assess.training.trainer.run_training",
+                        lambda cfg, name, smoke, record: records.append(record))  # fmt: skip
+    runner.invoke(app, ["train", "--config", LORA, "--run-name", "x"])
+    assert records[0].config["lora"]["lora"]["rank"] == 16
+    assert records[0].config["smoke"] is False
+
+
+def test_merge_calls_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake(cfg: Any, ecfg: Any, name: str, record: Any) -> None:
+        calls.append((name, ecfg.model_id))
+
+    monkeypatch.setattr("asr_assess.training.export.run_merge", fake)
+    result = runner.invoke(app, ["merge", "--config", LORA, "--engine", FT_ENGINE])
+    assert result.exit_code == 0, result.output
+    assert calls == [("lora", "checkpoints/merged/lora")]

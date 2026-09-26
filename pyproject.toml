@@ -125,7 +125,7 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = [
-    "torch.*", "transformers.*", "peft.*", "vllm.*", "accelerate.*", "datasets.*",
+    "torch.*", "transformers.*", "peft.*", "vllm.*", "accelerate.*", "safetensors.*", "datasets.*",
     "huggingface_hub.*", "pyarrow.*", "fastapi.*", "uvicorn.*", "httpx.*", "pynvml.*",
     "librosa.*", "soundfile.*", "jiwer.*", "matplotlib.*", "starlette.*",
 ]
@@ -134,5 +134,8 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-q -m 'not model'"
-markers = ["model: loads the real Qwen3-ASR checkpoint (needs the train extra; slow)"]
+addopts = "-q -m 'not model and not hf'"
+markers = [
+    "model: loads the real Qwen3-ASR checkpoint (needs the train extra; slow)",
+    "hf: needs the train extra and Hub access for processor files; CPU is fine, no 1.7B weights",
+]

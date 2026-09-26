@@ -59,6 +59,28 @@ rsync -avz <box>:~/qwen3-asr-malaysian-assess/results/ results/
 folders are never overwritten: re-runs need a new `--run-name`. `metrics.json` and
 `summary.json` record the git commit, config, GPU and time of every run.
 
+## Fine-tuning (GPU)
+
+LoRA (rank 16, alpha 32) on the Qwen3-1.7B decoder's attention and MLP projections only; the
+audio encoder, projector and embeddings stay frozen. Five epochs, and the epoch with the
+lowest **dev** loss is kept, so `eval.jsonl` is never seen before the final comparison.
+Hyperparameters live in `configs/lora.yaml`.
+
+```bash
+# on the GPU box, after the baseline
+make train-smoke   # 2 steps on 8 clips: catches API/OOM problems in about a minute
+make train         # checkpoints/lora/lora/best/ + results/train/lora/{train_summary.json,log_history.jsonl}
+make merge         # checkpoints/merged/lora/ + results/merge/lora/{weight_deltas.json,smoke.jsonl}
+make eval-ft       # results/eval/hf_ft-eval/ and results/eval/hf_ft-control/
+```
+
+`merge` fails if any tensor outside the LoRA targets changed, or if none did. The fine-tuned
+engine (`configs/engines/hf_ft.yaml`) is the baseline engine with only the weights swapped, so
+before/after WER differs by fine-tuning alone.
+
+Tests that need the `train` extra but no GPU (the real processor and a tiny random Qwen3-ASR
+run through train → merge → reload): `uv run --extra train pytest -m hf`.
+
 ## Development
 
 Everything runs through [uv](https://docs.astral.sh/uv/); the base install and CPU tests need no GPU.

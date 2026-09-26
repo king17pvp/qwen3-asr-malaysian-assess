@@ -3,14 +3,22 @@ model_id: Qwen/Qwen3-ASR-1.7B-hf
 train_manifest: data/manifests/train.jsonl
 dev_manifest: data/manifests/dev.jsonl
 output_dir: checkpoints/lora
+merged_dir: checkpoints/merged
+results_dir: results/train
+merge_results_dir: results/merge
+sample_rate: 16000
+# Training attention only; it does not change the learned weights. Eager vs SDPA stays an
+# inference-side measurement (configs/engines/*.yaml).
+attn_implementation: sdpa
+smoke_clips: 3
 seed: 42
 
 lora:
   rank: 16
   alpha: 32
   dropout: 0.05
-  # Qwen3 decoder projection names. TODO(gpu): confirm against model.named_modules()
-  # and that the audio encoder is excluded (training/lora.py restricts matching to the decoder).
+  # Matched only under model.language_model (training/lora.py): the audio encoder has its own
+  # q_proj/k_proj/v_proj, which stay frozen.
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 optim:
@@ -23,5 +31,12 @@ optim:
   bf16: true
   gradient_checkpointing: true
   eval_strategy: epoch
-  metric_for_best_model: eval_loss   # best checkpoint kept at the end of training
+  metric_for_best_model: eval_loss   # on dev; best checkpoint kept at the end of training
   logging_steps: 5
+  save_total_limit: 2
+  dataloader_num_workers: 2
+
+smoke:
+  train_clips: 8
+  dev_clips: 4
+  max_steps: 2
