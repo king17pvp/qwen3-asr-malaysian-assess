@@ -70,3 +70,36 @@ def _last_occurrence(ids: Sequence[int], pattern: Sequence[int]) -> int | None:
         if list(ids[start : start + width]) == target:
             return start
     return None
+
+
+# Keys Qwen3ASRForConditionalGeneration.forward accepts; the processor also returns
+# `num_audio_tokens`, which it does not.
+_MODEL_INPUTS = ("input_ids", "attention_mask", "input_features", "input_features_mask")
+
+
+class ASRCollator:
+    """Turns examples into a padded batch with reply-only labels (Trainer ``data_collator``)."""
+
+    def __init__(self, processor: Any, dtype: Any) -> None:
+        self._processor = processor
+        self._dtype = dtype
+        self._header: list[int] = processor.tokenizer.encode(
+            ASSISTANT_HEADER, add_special_tokens=False
+        )
+
+    def __call__(self, examples: Sequence[Example]) -> dict[str, Any]:
+        import torch
+
+        prompts = self._processor.apply_chat_template(
+            [build_conversation(e.target) for e in examples], tokenize=False
+        )
+        encoded = self._processor(
+            text=prompts, audio=[e.samples for e in examples], return_tensors="pt"
+        )
+        batch = {key: encoded[key] for key in _MODEL_INPUTS}
+        labels = mask_labels(
+            batch["input_ids"].tolist(), batch["attention_mask"].tolist(), self._header
+        )
+        batch["labels"] = torch.tensor(labels, dtype=batch["input_ids"].dtype)
+        batch["input_features"] = batch["input_features"].to(self._dtype)
+        return batch
