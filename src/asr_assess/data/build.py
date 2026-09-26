@@ -92,6 +92,22 @@ def split_groups(
     return train, [c for c in candidates if c.group in eval_groups]
 
 
+def dev_pool(
+    pool: Sequence[Candidate], train: Sequence[Candidate], target_s: float
+) -> tuple[list[Candidate], bool]:
+    """Dev candidates from the train-side ``pool``: never a train clip.
+
+    Clips from groups (speakers/videos) that train does not use are preferred; when those hold
+    less than ``target_s``, any non-train clip is allowed and the returned flag is True.
+    """
+    train_groups = {c.group for c in train}
+    unused = [c for c in pool if c.group not in train_groups]
+    if sum(c.duration_hint for c in unused) >= target_s:
+        return unused, False
+    train_keys = {c.key for c in train}
+    return [c for c in pool if c.key not in train_keys], True
+
+
 def select_by_minutes(
     pool: Sequence[Candidate],
     target_s: float,

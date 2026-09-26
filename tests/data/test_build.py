@@ -18,6 +18,7 @@ from asr_assess.core.run_record import RunRecord
 from asr_assess.data.build import (
     build_dataset,
     clip_filename,
+    dev_pool,
     is_usable,
     select_by_minutes,
     split_groups,
@@ -91,6 +92,34 @@ class TestSplitGroups:
     def test_min_groups_must_leave_a_train_side(self) -> None:
         with pytest.raises(ValueError, match="enough"):
             split_groups(pool(3, 5, [4.0]), 10.0, random.Random(0), min_groups=3)
+
+
+class TestDevPool:
+    def test_prefers_groups_train_did_not_use(self) -> None:
+        candidates = pool(10, 3, [5.0])
+        train = [c for c in candidates if c.group in {"g0", "g1"}]
+        chosen, overlap = dev_pool(candidates, train, target_s=30.0)
+        assert not overlap
+        assert {c.group for c in chosen}.isdisjoint({"g0", "g1"})
+
+    def test_falls_back_to_clip_disjoint_when_unused_groups_are_short(self) -> None:
+        candidates = pool(3, 4, [5.0])
+        train = [c for c in candidates if c.key.endswith(("-0", "-1"))]  # every group used
+        chosen, overlap = dev_pool(candidates, train, target_s=10.0)
+        assert overlap
+        assert chosen
+
+    def test_fallback_still_excludes_train_clips(self) -> None:
+        candidates = pool(3, 4, [5.0])
+        train = [c for c in candidates if c.key.endswith(("-0", "-1"))]
+        chosen, _ = dev_pool(candidates, train, target_s=10.0)
+        assert {c.key for c in chosen}.isdisjoint({c.key for c in train})
+
+    def test_empty_when_train_took_everything(self) -> None:
+        candidates = pool(2, 2, [5.0])
+        chosen, overlap = dev_pool(candidates, candidates, target_s=10.0)
+        assert chosen == []
+        assert overlap
 
 
 class TestSelectByMinutes:
