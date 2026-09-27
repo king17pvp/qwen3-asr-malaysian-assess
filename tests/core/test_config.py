@@ -53,6 +53,21 @@ class TestShippedConfigs:
         # Checkpoint selection uses dev; the reported eval set is never seen during training.
         assert cfg.dev_manifest == Path("data/manifests/dev.jsonl")
 
+    def test_lora_yaml_holds_the_training_paths(self) -> None:
+        cfg = load_config(CONFIGS / "lora.yaml", LoraTrainConfig)
+        assert cfg.merged_dir == Path("checkpoints/merged")
+        assert cfg.results_dir == Path("results/train")
+        assert cfg.merge_results_dir == Path("results/merge")
+        assert cfg.attn_implementation == "sdpa"
+        assert (cfg.smoke.train_clips, cfg.smoke.dev_clips, cfg.smoke.max_steps) == (8, 4, 2)
+        assert cfg.optim.save_total_limit == 2
+
+    def test_fine_tuned_engine_differs_from_baseline_only_in_weights(self) -> None:
+        base = load_config(CONFIGS / "engines" / "hf_base.yaml", EngineConfig)
+        tuned = load_config(CONFIGS / "engines" / "hf_ft.yaml", EngineConfig)
+        assert tuned.model_id == "checkpoints/merged/lora"
+        assert tuned.model_copy(update={"model_id": base.model_id}) == base
+
     def test_loadtest_yaml_holds_the_spec_levels(self) -> None:
         cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)
         assert cfg.concurrency_levels == [1, 2, 4, 8, 16, 32, 64, 128]

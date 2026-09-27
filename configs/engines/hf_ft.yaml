@@ -1,0 +1,9 @@
+# Fine-tuned model: identical to hf_base.yaml except the weights, so before/after WER differs
+# only by fine-tuning. `asr-assess merge` writes checkpoints/merged/<run>/ (default run: lora).
+kind: hf
+model_id: checkpoints/merged/lora
+dtype: bfloat16
+device: cuda
+attn_implementation: eager
+max_new_tokens: 256
+language_hint: auto
