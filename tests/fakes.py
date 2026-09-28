@@ -1,10 +1,12 @@
-"""Test doubles shared across test packages: a scripted ASR engine, a clock, WAV fixtures."""
+"""Test doubles shared across test packages: engines, a clock, a server transport, WAV fixtures."""
 
-from collections.abc import Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
 
+from asr_assess.benchmark.client import TransportResult
 from asr_assess.core.audio import write_wav
 from asr_assess.core.manifest import ManifestEntry
 from asr_assess.inference.engine import AudioRequest, Transcript
@@ -47,6 +49,41 @@ class ScriptedEngine:
             audio_s = sum(len(r.samples) for r in batch) / SAMPLE_RATE
             self._clock.advance(self._rtf * audio_s)
         return [Transcript(r.id, self._texts.get(r.id, ""), r.language) for r in batch]
+
+
+class FakeTransport:
+    """A server whose latency depends on how many requests are in flight (itself included)."""
+
+    def __init__(
+        self,
+        latency: Callable[[int], float],
+        text: Callable[[bytes, int], str] | None = None,
+        fail_at: int | None = None,
+    ) -> None:
+        self._latency, self._text, self._fail_at = latency, text, fail_at
+        self.inflight = 0
+        self.max_inflight = 0
+
+    async def transcribe(self, wav: bytes) -> TransportResult:
+        self.inflight += 1
+        seen = self.inflight
+        self.max_inflight = max(self.max_inflight, seen)
+        try:
+            await asyncio.sleep(self._latency(seen))
+        finally:
+            self.inflight -= 1
+        if self._fail_at is not None and seen >= self._fail_at:
+            return TransportResult("http_500")
+        return TransportResult("ok", self._text(wav, seen) if self._text else "")
+
+    async def wait_ready(self, timeout_s: float) -> bool:
+        return True
+
+    async def scrape_metrics(self) -> str | None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
 
 
 def write_clips(
