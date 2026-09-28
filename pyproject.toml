@@ -140,6 +140,8 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-q -m 'not model and not hf'"
+# Starlette's TestClient warns about its own httpx backend; not actionable here.
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient` is deprecated"]
 markers = [
     "model: loads the real Qwen3-ASR checkpoint (needs the train extra; slow)",
     "hf: needs the train extra and Hub access for processor files; CPU is fine, no 1.7B weights",
