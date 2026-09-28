@@ -1,5 +1,5 @@
 # Thin aliases for `uv run asr-assess ...`; stage targets are added with their stages.
-.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge eval-ft serve-hf serve-vllm loadtest test lint format
+.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge eval-ft serve-hf serve-vllm loadtest report test lint format
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -61,6 +61,9 @@ serve-vllm: ## Stock vllm serve from CFG (default configs/vllm/default.yaml; ser
 
 loadtest: ## Load test URL as LABEL; PROFILE=quick|full, SERVER_CFG copied into the summary
 	uv run --extra http asr-assess loadtest --url $(URL) --label $(LABEL) --profile $(or $(PROFILE),quick) $(if $(SERVER_CFG),--server-config $(SERVER_CFG))
+
+report: ## Tables and plots in results/plots from results/loadtest (report extra)
+	uv run --extra report asr-assess report
 
 test: ## CPU-only test suite
 	uv run pytest

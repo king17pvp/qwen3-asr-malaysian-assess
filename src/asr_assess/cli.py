@@ -340,6 +340,37 @@ def _gpu_monitor(hz: float) -> "Iterator[GpuMonitor | None]":
         yield monitor
 
 
+@app.command()
+def report(
+    results: Annotated[Path, typer.Option(help="Load-test results root")] = Path(
+        "results/loadtest"
+    ),
+    out: Annotated[Path, typer.Option(help="Where tables and plots go")] = Path("results/plots"),
+) -> None:
+    """Journey and concurrency tables plus plots from load-test results (needs `report` extra)."""
+    from asr_assess.reporting.tables import concurrency_table, journey_table, load_runs
+
+    try:
+        import matplotlib  # noqa: F401  (fail here, before writing anything)
+
+        from asr_assess.reporting.plots import plot_p95, plot_throughput
+    except ImportError as err:
+        log.error("Plots need matplotlib; run with `uv run --extra report` (%s)", err)
+        raise typer.Exit(code=1) from err
+    runs = load_runs(results)
+    if not runs:
+        log.error("No */summary.json under %s", results)
+        raise typer.Exit(code=1)
+    out.mkdir(parents=True, exist_ok=True)  # derived files: regenerated on every run
+    (out / "journey.md").write_text(journey_table(runs), encoding="utf-8")
+    for run in runs:
+        (out / f"concurrency_{run.label}.md").write_text(concurrency_table(run), "utf-8")
+    thresholds = [v.threshold for v in runs[0].verdicts]
+    plot_p95(runs, out / "p95_rtf.png", thresholds)
+    plot_throughput(runs, out / "throughput.png")
+    log.info("Wrote tables and plots for %d runs to %s", len(runs), out)
+
+
 TRAIN_PACKAGES = [
     "torch",
     "transformers",
