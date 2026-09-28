@@ -264,7 +264,7 @@ def test_vllm_journey_steps_differ_from_tuned_only_in_their_change() -> None:
         return load_config(CONFIGS / "vllm" / f"{name}.yaml", VLLMServeConfig).model_dump()
 
     tuned = load("tuned")
-    changes = {
+    changes: dict[str, dict[str, object]] = {
         "cpu_path": {"api_server_count": 2},
         "fp8": {"quantization": "fp8", "kv_cache_dtype": "fp8"},
         "eager": {"enforce_eager": True},
