@@ -2,13 +2,17 @@
 
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
 
 from asr_assess.benchmark.client import TransportResult
+from asr_assess.benchmark.env_info import EnvInfo
+from asr_assess.benchmark.loadtest import RunMeta
 from asr_assess.core.audio import write_wav
 from asr_assess.core.manifest import ManifestEntry
+from asr_assess.core.run_record import RunRecord
 from asr_assess.inference.engine import AudioRequest, Transcript
 
 SAMPLE_RATE = 16000
@@ -84,6 +88,22 @@ class FakeTransport:
 
     async def aclose(self) -> None:
         return None
+
+
+def fake_meta(label: str = "t") -> RunMeta:
+    """Provenance for a load-test run against a fake server."""
+    record = RunRecord(
+        git_commit="abc",
+        git_dirty=False,
+        config={},
+        config_hash="h",
+        gpu_name=None,
+        python_version="3.12",
+        package_versions={},
+        timestamp=datetime(2026, 9, 28, tzinfo=UTC),
+    )
+    env = EnvInfo([], None, None, None, None, "linux", "3.12", {})
+    return RunMeta(label=label, url="http://fake", server_config=None, record=record, env=env)
 
 
 def write_clips(

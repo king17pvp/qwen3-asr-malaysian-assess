@@ -3,12 +3,14 @@
 Heavy dependencies (torch, transformers, vllm) are imported inside the commands that need them.
 """
 
+import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from pydantic import ValidationError
@@ -30,6 +32,11 @@ from asr_assess.core.config import (
 from asr_assess.core.logging import setup_logging
 from asr_assess.core.manifest import read_manifest
 from asr_assess.core.run_record import collect_run_record
+
+if TYPE_CHECKING:
+    from asr_assess.benchmark.gpu_monitor import GpuMonitor
+    from asr_assess.benchmark.load_stats import PoolClip
+    from asr_assess.benchmark.loadtest import RunMeta
 
 log = logging.getLogger(__name__)
 
@@ -194,6 +201,106 @@ def bench(
     asr = factory.make_engine(run.engine)
     entries = read_manifest(bench_cfg.manifest)
     run_offline(asr, entries, bench_cfg, run.engine.language_hint, out_dir, record, env)
+
+
+LOADTEST_PACKAGES = ["httpx", "numpy", "soundfile", "pynvml"]
+
+
+class LoadTestRun(StrictModel):
+    """Everything that determines a load-test result; stamped into summary.json."""
+
+    loadtest: LoadTestConfig
+    profile: str
+    url: str
+    label: str
+    max_tokens: int
+
+
+@app.command()
+def loadtest(
+    url: Annotated[str, typer.Option(help="Server base URL, e.g. http://localhost:8000")],
+    label: Annotated[
+        str, typer.Option(help="Journey row name; results go to <output_dir>/<label>")
+    ],
+    profile: Annotated[str, typer.Option(help="Profile in the config: full or quick")] = "quick",
+    config: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path(
+        "configs/loadtest.yaml"
+    ),
+    server_config: Annotated[
+        Path | None,
+        typer.Option(exists=True, dir_okay=False, help="Server YAML, copied into the summary"),
+    ] = None,
+    max_tokens: Annotated[int, typer.Option(min=1, help="Decode budget sent per request")] = 256,
+    dry_run: Annotated[
+        bool, typer.Option(help="Build the audio pool and log the schedule; send nothing.")
+    ] = False,
+) -> None:
+    """Closed-loop N-stream load test against an HF or vLLM server (needs the `http` extra)."""
+    from asr_assess.benchmark import loadtest as lt
+    from asr_assess.benchmark.env_info import collect_env_info
+
+    cfg = load_config(config, LoadTestConfig)
+    if profile not in cfg.profiles:
+        log.error("Unknown profile %r; choose from %s", profile, sorted(cfg.profiles))
+        raise typer.Exit(code=1)
+    out_dir = cfg.output_dir / label
+    if out_dir.exists():
+        log.error("%s exists; results are never overwritten", out_dir)
+        raise typer.Exit(code=1)
+    clips = lt.build_pool(read_manifest(cfg.audio_pool.manifest), sample_rate=16000)
+    chosen = cfg.profiles[profile]
+    worst_s = (
+        len(chosen.concurrency_levels) * chosen.repeats * (chosen.warmup_s + chosen.steady_state_s)
+    )
+    log.info("%d clips; levels %s x %d repeats; at most ~%.0f min before bisection",
+             len(clips), chosen.concurrency_levels, chosen.repeats, worst_s / 60)  # fmt: skip
+    if dry_run:
+        return
+    run = LoadTestRun(loadtest=cfg, profile=profile, url=url, label=label, max_tokens=max_tokens)
+    meta = lt.RunMeta(
+        label=label,
+        url=url,
+        server_config=server_config.read_text(encoding="utf-8") if server_config else None,
+        record=collect_run_record(run, packages=LOADTEST_PACKAGES, repo=Path.cwd()),
+        env=collect_env_info(LOADTEST_PACKAGES),
+    )
+    asyncio.run(_run_loadtest(cfg, profile, out_dir, meta, clips, max_tokens))
+
+
+async def _run_loadtest(
+    cfg: LoadTestConfig,
+    profile: str,
+    out_dir: Path,
+    meta: "RunMeta",
+    clips: "list[PoolClip]",
+    max_tokens: int,
+) -> None:
+    from asr_assess.benchmark.client import OpenAITranscriptionTransport
+    from asr_assess.benchmark.loadtest import run_loadtest
+
+    transport = OpenAITranscriptionTransport(meta.url, cfg.request_timeout_s, max_tokens)
+    try:
+        with _gpu_monitor(cfg.gpu_sample_hz) as gpu:
+            summary = await run_loadtest(transport, clips, cfg, profile, out_dir, meta, gpu)
+    finally:
+        await transport.aclose()
+    for verdict in summary.verdicts:
+        log.info("Max sustainable at P95 RTF <= %s: %s", verdict.threshold, verdict.max_sustainable)
+
+
+@contextmanager
+def _gpu_monitor(hz: float) -> "Iterator[GpuMonitor | None]":
+    """NVML sampling of GPU 0, or None (with a warning) where NVML is unavailable."""
+    from asr_assess.benchmark.gpu_monitor import GpuMonitor, PynvmlReader
+
+    try:
+        reader = PynvmlReader()
+    except Exception as err:  # no driver or no pynvml: measure without GPU stats
+        log.warning("GPU sampling disabled: %s", err)
+        yield None
+        return
+    with GpuMonitor(reader, hz) as monitor:
+        yield monitor
 
 
 TRAIN_PACKAGES = [

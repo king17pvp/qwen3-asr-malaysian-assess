@@ -178,3 +178,43 @@ def test_vllm_args_prints_one_argument_per_line() -> None:
     result = runner.invoke(app, ["vllm-args", str(path)])
     assert result.exit_code == 0, result.output
     assert result.output.splitlines() == vllm_args(load_config(path, VLLMServeConfig))
+
+
+def loadtest_config(tmp_path: Path) -> Path:
+    entries = write_clips(tmp_path, [("a", 2.5, "2-5", "hello")])
+    write_manifest(tmp_path / "pool.jsonl", entries)
+    text = (CONFIGS / "loadtest.yaml").read_text(encoding="utf-8")
+    text = text.replace("data/manifests/eval.jsonl", str(tmp_path / "pool.jsonl"))
+    text = text.replace("output_dir: results/loadtest", f"output_dir: {tmp_path / 'out'}")
+    path = tmp_path / "loadtest.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def invoke_loadtest(config: Path, *extra: str) -> Result:
+    args = ["loadtest", "--url", "http://x", "--label", "l", "--config", str(config), *extra]
+    return runner.invoke(app, args)
+
+
+def test_loadtest_dry_run_sends_nothing_and_writes_nothing(tmp_path: Path) -> None:
+    result = invoke_loadtest(loadtest_config(tmp_path), "--profile", "quick", "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert not (tmp_path / "out" / "l").exists()
+
+
+def test_loadtest_unknown_profile_is_rejected(tmp_path: Path) -> None:
+    result = invoke_loadtest(loadtest_config(tmp_path), "--profile", "nope", "--dry-run")
+    assert result.exit_code == 1
+
+
+def test_loadtest_refuses_existing_label_before_loading_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = loadtest_config(tmp_path)
+    (tmp_path / "out" / "l").mkdir(parents=True)
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("the pool must not be built")
+
+    monkeypatch.setattr("asr_assess.benchmark.loadtest.build_pool", boom)
+    assert invoke_loadtest(config, "--dry-run").exit_code == 1
