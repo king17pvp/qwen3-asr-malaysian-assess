@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from asr_assess.core.audio import load_audio
-from asr_assess.core.config import EngineConfig
+from asr_assess.core.config import HFEngineConfig
 from asr_assess.core.manifest import read_manifest
 from asr_assess.inference.engine import AudioRequest
 
@@ -26,7 +26,7 @@ def engine() -> object:
         and torch.cuda.get_device_properties(0).total_memory >= MIN_GPU_GIB * 1024**3
     )
     device = "cuda" if big_gpu else "cpu"
-    return HFEngine(EngineConfig(kind="hf", model_id="Qwen/Qwen3-ASR-1.7B-hf", dtype="bfloat16",
+    return HFEngine(HFEngineConfig(kind="hf", model_id="Qwen/Qwen3-ASR-1.7B-hf", dtype="bfloat16",
                                  device=device, attn_implementation="eager",
                                  max_new_tokens=256, language_hint="auto"))  # fmt: skip
 

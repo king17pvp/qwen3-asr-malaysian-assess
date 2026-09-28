@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from asr_assess.core.config import EngineConfig, LoraTrainConfig
+from asr_assess.core.config import HFEngineConfig, LoraTrainConfig
 from asr_assess.core.manifest import ManifestEntry, read_manifest
 from asr_assess.core.run_record import RunRecord
 from asr_assess.inference.engine import ASREngine, check_alignment
@@ -64,7 +64,7 @@ def base_snapshot(model_id: str) -> Path:
 
 
 def run_merge(
-    cfg: LoraTrainConfig, engine_cfg: EngineConfig, run_name: str, record: RunRecord
+    cfg: LoraTrainConfig, engine_cfg: HFEngineConfig, run_name: str, record: RunRecord
 ) -> DeltaReport:
     """Merge, write the weight-delta proof, then reload the result and transcribe dev clips."""
     adapter = cfg.output_dir / run_name / "best"

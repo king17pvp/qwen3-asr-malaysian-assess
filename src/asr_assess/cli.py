@@ -4,7 +4,9 @@ Heavy dependencies (torch, transformers, vllm) are imported inside the commands 
 """
 
 import logging
+from collections.abc import Callable
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import Annotated
 
@@ -14,12 +16,16 @@ from pydantic import ValidationError
 from asr_assess.core.config import (
     BenchConfig,
     DataConfig,
-    EngineConfig,
     EvalConfig,
+    HFEngineConfig,
     LoadTestConfig,
     LoraTrainConfig,
+    ServeConfig,
     StrictModel,
+    VLLMHTTPEngineConfig,
+    VLLMServeConfig,
     load_config,
+    load_engine_config,
 )
 from asr_assess.core.logging import setup_logging
 from asr_assess.core.manifest import read_manifest
@@ -42,15 +48,19 @@ class ConfigKind(StrEnum):
     engine = "engine"
     eval = "eval"
     bench = "bench"
+    serve = "serve"
+    vllm = "vllm"
 
 
-CONFIG_MODELS: dict[ConfigKind, type[StrictModel]] = {
-    ConfigKind.data: DataConfig,
-    ConfigKind.lora: LoraTrainConfig,
-    ConfigKind.loadtest: LoadTestConfig,
-    ConfigKind.engine: EngineConfig,
-    ConfigKind.eval: EvalConfig,
-    ConfigKind.bench: BenchConfig,
+CONFIG_LOADERS: dict[ConfigKind, Callable[[Path], object]] = {
+    ConfigKind.data: partial(load_config, model=DataConfig),
+    ConfigKind.lora: partial(load_config, model=LoraTrainConfig),
+    ConfigKind.loadtest: partial(load_config, model=LoadTestConfig),
+    ConfigKind.engine: load_engine_config,
+    ConfigKind.eval: partial(load_config, model=EvalConfig),
+    ConfigKind.bench: partial(load_config, model=BenchConfig),
+    ConfigKind.serve: partial(load_config, model=ServeConfig),
+    ConfigKind.vllm: partial(load_config, model=VLLMServeConfig),
 }
 DATA_PACKAGES = ["numpy", "soundfile", "librosa", "huggingface-hub", "pyarrow"]
 
@@ -70,7 +80,7 @@ def check_config(
 ) -> None:
     """Validate a YAML config file without running anything."""
     try:
-        load_config(path, CONFIG_MODELS[kind])
+        CONFIG_LOADERS[kind](path)
     except (ValidationError, ValueError) as err:
         log.error("%s is not a valid %s config:\n%s", path, kind.value, err)
         raise typer.Exit(code=1) from err
@@ -104,7 +114,7 @@ INFERENCE_PACKAGES = ["torch", "transformers", "numpy", "jiwer", "soundfile"]
 class EvalRun(StrictModel):
     """Everything that determines an eval result; stamped into metrics.json."""
 
-    engine: EngineConfig
+    engine: HFEngineConfig | VLLMHTTPEngineConfig
     eval: EvalConfig
     manifest: str
     limit: int | None
@@ -113,7 +123,7 @@ class EvalRun(StrictModel):
 class BenchRun(StrictModel):
     """Everything that determines an offline benchmark result; stamped into summary.json."""
 
-    engine: EngineConfig
+    engine: HFEngineConfig | VLLMHTTPEngineConfig
     bench: BenchConfig
     smoke: bool
 
@@ -134,7 +144,7 @@ def eval_command(
     from asr_assess.inference import factory
 
     run = EvalRun(
-        engine=load_config(engine, EngineConfig),
+        engine=load_engine_config(engine),
         eval=load_config(config, EvalConfig),
         manifest=manifest,
         limit=limit,
@@ -166,7 +176,7 @@ def bench(
         bench_cfg = bench_cfg.model_copy(
             update={"clips_per_bucket": 2, "repeats": 1, "warmup_requests": 1}
         )
-    run = BenchRun(engine=load_config(engine, EngineConfig), bench=bench_cfg, smoke=smoke)
+    run = BenchRun(engine=load_engine_config(engine), bench=bench_cfg, smoke=smoke)
     out_dir = bench_cfg.output_dir / (run_name or f"{engine.stem}-offline")
     record = collect_run_record(run, packages=INFERENCE_PACKAGES, repo=Path.cwd())
     env = collect_env_info(INFERENCE_PACKAGES)
@@ -198,7 +208,7 @@ class MergeRun(StrictModel):
     """Everything that determines a merge; stamped into merge_summary.json."""
 
     lora: LoraTrainConfig
-    engine: EngineConfig
+    engine: HFEngineConfig
     run_name: str
 
 
@@ -232,7 +242,7 @@ def merge(
     """Merge a run's best adapter, verify the weight deltas, reload and transcribe dev clips."""
     from asr_assess.training import export
 
-    cfg, engine_cfg = load_config(config, LoraTrainConfig), load_config(engine, EngineConfig)
+    cfg, engine_cfg = load_config(config, LoraTrainConfig), load_config(engine, HFEngineConfig)
     name = run_name or config.stem
     run = MergeRun(lora=cfg, engine=engine_cfg, run_name=name)
     record = collect_run_record(run, TRAIN_PACKAGES, Path.cwd())

@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from asr_assess.core.config import EngineConfig, LoraTrainConfig, load_config
+from asr_assess.core.config import HFEngineConfig, LoraTrainConfig, load_config
 from asr_assess.core.manifest import write_manifest
 from asr_assess.core.run_record import RunRecord
 from asr_assess.training import export
@@ -45,14 +45,14 @@ class TestSmokeTranscribe:
 
 
 class TestRunMerge:
-    def setup(self, tmp_path: Path) -> tuple[LoraTrainConfig, EngineConfig]:
+    def setup(self, tmp_path: Path) -> tuple[LoraTrainConfig, HFEngineConfig]:
         entries = write_clips(tmp_path, [("a", 3.0, "2-5", "satu")])
         write_manifest(tmp_path / "dev.jsonl", entries)
         cfg = load_config(CONFIGS / "lora.yaml", LoraTrainConfig).model_copy(update={
             "dev_manifest": tmp_path / "dev.jsonl", "output_dir": tmp_path / "ckpt",
             "merged_dir": tmp_path / "merged", "merge_results_dir": tmp_path / "res",
         })  # fmt: skip
-        return cfg, load_config(CONFIGS / "engines" / "hf_ft.yaml", EngineConfig)
+        return cfg, load_config(CONFIGS / "engines" / "hf_ft.yaml", HFEngineConfig)
 
     def test_missing_adapter_is_actionable(self, tmp_path: Path) -> None:
         cfg, engine_cfg = self.setup(tmp_path)
@@ -78,7 +78,7 @@ class TestRunMerge:
         monkeypatch.setattr(export, "base_snapshot", lambda model_id: tmp_path / "base")
         monkeypatch.setattr(export, "weight_deltas", lambda base, tuned: {q: 0.01})
 
-        def fake_engine(ec: EngineConfig) -> Any:
+        def fake_engine(ec: HFEngineConfig) -> Any:
             loaded.append(ec.model_id)
             return ScriptedEngine({str(tmp_path / "a.wav"): "satu"})
 

@@ -8,12 +8,17 @@ from pydantic import ValidationError
 from asr_assess.core.config import (
     BenchConfig,
     DataConfig,
-    EngineConfig,
     EvalConfig,
+    HFEngineConfig,
+    LoadProfile,
     LoadTestConfig,
     LoraTrainConfig,
+    ServeConfig,
     StrictModel,
+    VLLMHTTPEngineConfig,
+    VLLMServeConfig,
     load_config,
+    load_engine_config,
 )
 
 CONFIGS = Path(__file__).resolve().parents[2] / "configs"
@@ -63,15 +68,17 @@ class TestShippedConfigs:
         assert cfg.optim.save_total_limit == 2
 
     def test_fine_tuned_engine_differs_from_baseline_only_in_weights(self) -> None:
-        base = load_config(CONFIGS / "engines" / "hf_base.yaml", EngineConfig)
-        tuned = load_config(CONFIGS / "engines" / "hf_ft.yaml", EngineConfig)
+        base = load_config(CONFIGS / "engines" / "hf_base.yaml", HFEngineConfig)
+        tuned = load_config(CONFIGS / "engines" / "hf_ft.yaml", HFEngineConfig)
         assert tuned.model_id == "checkpoints/merged/lora"
         assert tuned.model_copy(update={"model_id": base.model_id}) == base
 
     def test_loadtest_yaml_holds_the_spec_levels(self) -> None:
         cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)
-        assert cfg.concurrency_levels == [1, 2, 4, 8, 16, 32, 64, 128]
-        assert (cfg.warmup_s, cfg.steady_state_s, cfg.repeats) == (30.0, 120.0, 3)
+        full, quick = cfg.profiles["full"], cfg.profiles["quick"]
+        assert full.concurrency_levels == [1, 2, 4, 8, 16, 32, 64, 128]
+        assert (full.warmup_s, full.steady_state_s, full.repeats) == (30.0, 120.0, 3)
+        assert quick.repeats == 1
         assert cfg.thresholds.p95_rtf_max == 0.5
 
 
@@ -148,11 +155,24 @@ class TestDataConfig:
 
 
 class TestLoadTestValidation:
-    def test_levels_must_be_strictly_ascending(self, tmp_path: Path) -> None:
-        cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig).model_dump()
-        cfg["concurrency_levels"] = [1, 4, 2]
+    def profile(self, levels: list[int]) -> dict[str, object]:
+        return {
+            "concurrency_levels": levels,
+            "repeats": 1,
+            "warmup_s": 1,
+            "steady_state_s": 2,
+            "bisect": True,
+            "bisect_max_steps": 3,
+            "stop_after_failures": 1,
+        }
+
+    def test_levels_must_be_strictly_ascending(self) -> None:
         with pytest.raises(ValidationError, match="ascending"):
-            LoadTestConfig.model_validate(cfg)
+            LoadProfile.model_validate(self.profile([1, 4, 2]))
+
+    def test_levels_must_start_at_one(self) -> None:
+        with pytest.raises(ValidationError, match="start at 1"):
+            LoadProfile.model_validate(self.profile([2, 4]))
 
     def test_strong_threshold_must_not_exceed_max(self) -> None:
         cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig).model_dump()
@@ -161,9 +181,64 @@ class TestLoadTestValidation:
             LoadTestConfig.model_validate(cfg)
 
 
+class TestEngineConfigs:
+    def test_shipped_hf_engines_load_as_hf(self) -> None:
+        for name in ("hf_base.yaml", "hf_ft.yaml"):
+            assert isinstance(load_engine_config(CONFIGS / "engines" / name), HFEngineConfig)
+
+    def test_vllm_http_engine(self, tmp_path: Path) -> None:
+        path = tmp_path / "e.yaml"
+        path.write_text(
+            "kind: vllm_http\nbase_url: http://localhost:8000\n"
+            "request_timeout_s: 60\nmax_new_tokens: 256\nlanguage_hint: auto\n"
+        )
+        cfg = load_engine_config(path)
+        assert isinstance(cfg, VLLMHTTPEngineConfig)
+        assert cfg.model is None
+
+    def test_vllm_http_rejects_manifest_language(self, tmp_path: Path) -> None:
+        path = tmp_path / "e.yaml"
+        path.write_text(
+            "kind: vllm_http\nbase_url: http://x\nrequest_timeout_s: 1\n"
+            "max_new_tokens: 8\nlanguage_hint: manifest\n"
+        )
+        with pytest.raises(ValidationError):
+            load_engine_config(path)
+
+    def test_unknown_kind_is_rejected(self, tmp_path: Path) -> None:
+        path = tmp_path / "e.yaml"
+        path.write_text("kind: onnx\n")
+        with pytest.raises(ValidationError):
+            load_engine_config(path)
+
+
+class TestServeConfigs:
+    def test_serve_config_validates(self, tmp_path: Path) -> None:
+        path = tmp_path / "s.yaml"
+        path.write_text(
+            "engine: configs/engines/hf_ft.yaml\nhost: 0.0.0.0\nport: 8001\n"
+            "max_batch: 1\nmax_wait_ms: 0\nsample_rate: 16000\n"
+        )
+        assert load_config(path, ServeConfig).max_batch == 1
+
+    def test_vllm_serve_config_defaults_to_stock(self, tmp_path: Path) -> None:
+        path = tmp_path / "v.yaml"
+        path.write_text("model: checkpoints/merged/lora\nport: 8000\n")
+        cfg = load_config(path, VLLMServeConfig)
+        assert cfg.enforce_eager is False
+        assert cfg.max_num_seqs is None
+        assert cfg.extra_args == []
+
+    def test_gpu_memory_utilization_is_a_fraction(self, tmp_path: Path) -> None:
+        path = tmp_path / "v.yaml"
+        path.write_text("model: m\nport: 8000\ngpu_memory_utilization: 1.5\n")
+        with pytest.raises(ValidationError):
+            load_config(path, VLLMServeConfig)
+
+
 class TestInferenceConfigs:
     def test_baseline_engine_is_plain_transformers(self) -> None:
-        cfg = load_config(CONFIGS / "engines" / "hf_base.yaml", EngineConfig)
+        cfg = load_config(CONFIGS / "engines" / "hf_base.yaml", HFEngineConfig)
         assert (cfg.kind, cfg.model_id) == ("hf", "Qwen/Qwen3-ASR-1.7B-hf")
         assert cfg.attn_implementation == "eager"
         assert cfg.language_hint == "auto"

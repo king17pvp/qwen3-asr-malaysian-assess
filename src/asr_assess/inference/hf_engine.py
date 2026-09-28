@@ -9,7 +9,7 @@ import logging
 from collections.abc import Collection, Sequence
 from typing import Any
 
-from asr_assess.core.config import EngineConfig
+from asr_assess.core.config import HFEngineConfig
 from asr_assess.inference.engine import AudioRequest, Transcript
 
 log = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def hit_token_limit(row: Sequence[int], eos_ids: Collection[int], max_new_tokens
 class HFEngine:
     """Qwen3-ASR through ``Qwen3ASRForConditionalGeneration`` with greedy decoding."""
 
-    def __init__(self, cfg: EngineConfig) -> None:
+    def __init__(self, cfg: HFEngineConfig) -> None:
         import torch
         import transformers
 
