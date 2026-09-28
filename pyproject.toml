@@ -27,6 +27,14 @@ train = [
 ]
 # Dataset download: remote parquet row groups and single zip members from the Hub.
 data = ["huggingface-hub==1.33.0", "pyarrow==25.0.1"]
+# HTTP serving and load-test client: shared by the HF server (with `train`) and vLLM (`serve`).
+http = [
+    "fastapi==0.136.3",
+    "uvicorn==0.53.0",
+    "httpx==0.28.1",
+    "pynvml==13.0.1",
+    "python-multipart==0.0.32",
+]
 # Serving stack: vLLM pins its own torch/transformers, hence the conflict with `train`.
 serve = [
     "vllm[audio]==0.30.0",
@@ -34,10 +42,7 @@ serve = [
     "torch==2.13.0",
     "torchaudio==2.11.0",
     "torchvision==0.28.0",
-    "fastapi==0.136.3",
-    "uvicorn==0.53.0",
-    "httpx==0.28.1",
-    "pynvml==13.0.1",
+    "asr-assess[http]",
 ]
 # Plot generation for reports only.
 report = ["matplotlib==3.11.2"]
@@ -127,7 +132,7 @@ strict = true
 module = [
     "torch.*", "transformers.*", "peft.*", "vllm.*", "accelerate.*", "safetensors.*", "datasets.*",
     "huggingface_hub.*", "pyarrow.*", "fastapi.*", "uvicorn.*", "httpx.*", "pynvml.*",
-    "librosa.*", "soundfile.*", "jiwer.*", "matplotlib.*", "starlette.*",
+    "librosa.*", "soundfile.*", "jiwer.*", "matplotlib.*", "starlette.*", "multipart.*",
 ]
 ignore_missing_imports = true
 

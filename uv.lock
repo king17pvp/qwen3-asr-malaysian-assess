@@ -176,6 +176,13 @@ data = [
     { name = "huggingface-hub" },
     { name = "pyarrow" },
 ]
+http = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pynvml" },
+    { name = "python-multipart" },
+    { name = "uvicorn" },
+]
 report = [
     { name = "matplotlib" },
 ]
@@ -183,6 +190,7 @@ serve = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pynvml" },
+    { name = "python-multipart" },
     { name = "torch", version = "2.13.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" } },
     { name = "torchaudio" },
     { name = "torchvision" },
@@ -210,9 +218,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'train'", specifier = "==1.15.0" },
+    { name = "asr-assess", extras = ["http"], marker = "extra == 'serve'" },
     { name = "datasets", marker = "extra == 'train'", specifier = "==5.0.1" },
-    { name = "fastapi", marker = "extra == 'serve'", specifier = "==0.136.3" },
-    { name = "httpx", marker = "extra == 'serve'", specifier = "==0.28.1" },
+    { name = "fastapi", marker = "extra == 'http'", specifier = "==0.136.3" },
+    { name = "httpx", marker = "extra == 'http'", specifier = "==0.28.1" },
     { name = "huggingface-hub", marker = "extra == 'data'", specifier = "==1.33.0" },
     { name = "jiwer", specifier = "==4.0.0" },
     { name = "librosa", specifier = "==1.0.0" },
@@ -221,7 +230,8 @@ requires-dist = [
     { name = "peft", marker = "extra == 'train'", specifier = "==0.21.0" },
     { name = "pyarrow", marker = "extra == 'data'", specifier = "==25.0.1" },
     { name = "pydantic", specifier = "==2.13.5" },
-    { name = "pynvml", marker = "extra == 'serve'", specifier = "==13.0.1" },
+    { name = "pynvml", marker = "extra == 'http'", specifier = "==13.0.1" },
+    { name = "python-multipart", marker = "extra == 'http'", specifier = "==0.0.32" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "rich", specifier = "==15.0.0" },
     { name = "soundfile", specifier = "==0.14.0" },
@@ -231,10 +241,10 @@ requires-dist = [
     { name = "torchvision", marker = "extra == 'serve'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu129", conflict = { package = "asr-assess", extra = "serve" } },
     { name = "transformers", marker = "extra == 'train'", specifier = "==5.17.0" },
     { name = "typer", specifier = "==0.27.2" },
-    { name = "uvicorn", marker = "extra == 'serve'", specifier = "==0.53.0" },
+    { name = "uvicorn", marker = "extra == 'http'", specifier = "==0.53.0" },
     { name = "vllm", extras = ["audio"], marker = "extra == 'serve'", specifier = "==0.30.0", index = "https://wheels.vllm.ai/0.30.0/cu129", conflict = { package = "asr-assess", extra = "serve" } },
 ]
-provides-extras = ["train", "data", "serve", "report"]
+provides-extras = ["train", "data", "http", "serve", "report"]
 
 [package.metadata.requires-dev]
 dev = [

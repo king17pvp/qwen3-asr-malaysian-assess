@@ -50,7 +50,8 @@ def test_check_config_rejects_invalid_file(tmp_path: Path) -> None:
 def test_import_does_not_load_heavy_dependencies() -> None:
     code = (
         "import sys, asr_assess.cli; "
-        "heavy = {'torch', 'transformers', 'peft', 'vllm', 'librosa'} & set(sys.modules); "
+        "heavy = {'torch', 'transformers', 'peft', 'vllm', 'librosa', 'fastapi', 'httpx', 'pynvml',"
+        " 'uvicorn', 'matplotlib'} & set(sys.modules); "
         "sys.exit(len(heavy))"
     )
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
