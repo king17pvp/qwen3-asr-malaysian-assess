@@ -248,3 +248,26 @@ def test_shipped_serve_configs_are_valid(name: str) -> None:
     path = CONFIGS / "serve" / f"{name}.yaml"
     result = runner.invoke(app, ["check-config", "serve", str(path)])
     assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize("name", ["default", "tuned", "cpu_path", "fp8", "eager"])
+def test_shipped_vllm_configs_are_valid(name: str) -> None:
+    path = CONFIGS / "vllm" / f"{name}.yaml"
+    result = runner.invoke(app, ["check-config", "vllm", str(path)])
+    assert result.exit_code == 0, result.output
+
+
+def test_vllm_journey_steps_differ_from_tuned_only_in_their_change() -> None:
+    from asr_assess.core.config import VLLMServeConfig, load_config
+
+    def load(name: str) -> dict[str, object]:
+        return load_config(CONFIGS / "vllm" / f"{name}.yaml", VLLMServeConfig).model_dump()
+
+    tuned = load("tuned")
+    changes = {
+        "cpu_path": {"api_server_count": 2},
+        "fp8": {"quantization": "fp8", "kv_cache_dtype": "fp8"},
+        "eager": {"enforce_eager": True},
+    }
+    for name, change in changes.items():
+        assert load(name) == tuned | change, name

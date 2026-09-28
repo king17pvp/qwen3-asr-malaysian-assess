@@ -1,0 +1,10 @@
+# Journey row "FP8": tuned + FP8 weights and KV cache. On Ampere (RTX 3090) FP8 weights are
+# weight-only (W8A16): no faster matmuls. Hypothesis: more KV capacity; helps only if KV was the limit.
+model: checkpoints/merged/lora
+port: 8000
+gpu_memory_utilization: 0.92
+max_num_seqs: 128
+max_num_batched_tokens: 16384
+max_model_len: 4096
+quantization: fp8
+kv_cache_dtype: fp8

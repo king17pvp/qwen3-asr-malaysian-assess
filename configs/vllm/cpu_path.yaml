@@ -1,0 +1,10 @@
+# Journey row "CPU-path fixes": tuned + a second API server process. Hypothesis: multipart parsing,
+# audio decoding and feature extraction saturate one CPU core at high concurrency. Evidence: GPU
+# utilization under ~70% while P95 RTF grows.
+model: checkpoints/merged/lora
+port: 8000
+gpu_memory_utilization: 0.92
+max_num_seqs: 128
+max_num_batched_tokens: 16384
+max_model_len: 4096
+api_server_count: 2

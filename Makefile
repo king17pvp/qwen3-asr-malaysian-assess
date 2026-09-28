@@ -18,6 +18,10 @@ check-configs: ## Validate the shipped YAML configs
 	uv run asr-assess check-config bench configs/bench.yaml
 	uv run asr-assess check-config engine configs/engines/vllm_ft.yaml
 	uv run asr-assess check-config vllm configs/vllm/default.yaml
+	uv run asr-assess check-config vllm configs/vllm/tuned.yaml
+	uv run asr-assess check-config vllm configs/vllm/cpu_path.yaml
+	uv run asr-assess check-config vllm configs/vllm/fp8.yaml
+	uv run asr-assess check-config vllm configs/vllm/eager.yaml
 	uv run asr-assess check-config engine configs/engines/hf_ft_sdpa.yaml
 	uv run asr-assess check-config serve configs/serve/hf_baseline.yaml
 	uv run asr-assess check-config serve configs/serve/hf_sdpa.yaml
