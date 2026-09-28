@@ -218,3 +218,33 @@ def test_loadtest_refuses_existing_label_before_loading_audio(
 
     monkeypatch.setattr("asr_assess.benchmark.loadtest.build_pool", boom)
     assert invoke_loadtest(config, "--dry-run").exit_code == 1
+
+
+def test_serve_dry_run_loads_no_model() -> None:
+    code = (
+        "import sys; from typer.testing import CliRunner; from asr_assess.cli import app; "
+        "r = CliRunner().invoke(app, ['serve', '--config', 'configs/serve/hf_baseline.yaml', "
+        "'--dry-run']); "
+        "heavy = {'torch', 'transformers', 'uvicorn', 'fastapi'} & set(sys.modules); "
+        "sys.exit(r.exit_code or len(heavy))"
+    )
+    root = CONFIGS.parent
+    assert subprocess.run([sys.executable, "-c", code], cwd=root, check=False).returncode == 0
+
+
+def test_serve_rejects_a_vllm_engine(tmp_path: Path) -> None:
+    serve_cfg = tmp_path / "s.yaml"
+    serve_cfg.write_text(
+        f"engine: {CONFIGS / 'engines' / 'vllm_ft.yaml'}\nhost: 0.0.0.0\nport: 8001\n"
+        "max_batch: 1\nmax_wait_ms: 0\nsample_rate: 16000\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["serve", "--config", str(serve_cfg), "--dry-run"])
+    assert result.exit_code == 1
+
+
+@pytest.mark.parametrize("name", ["hf_baseline", "hf_sdpa", "hf_batched"])
+def test_shipped_serve_configs_are_valid(name: str) -> None:
+    path = CONFIGS / "serve" / f"{name}.yaml"
+    result = runner.invoke(app, ["check-config", "serve", str(path)])
+    assert result.exit_code == 0, result.output

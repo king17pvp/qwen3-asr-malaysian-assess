@@ -203,6 +203,38 @@ def bench(
     run_offline(asr, entries, bench_cfg, run.engine.language_hint, out_dir, record, env)
 
 
+@app.command()
+def serve(
+    config: Annotated[Path, typer.Option(exists=True, dir_okay=False, help="configs/serve/*.yaml")],
+    dry_run: Annotated[bool, typer.Option(help="Validate the configs; load no model.")] = False,
+) -> None:
+    """HF-engine transcription server with dynamic batching (needs `train` + `http` extras)."""
+    cfg = load_config(config, ServeConfig)
+    engine_cfg = load_engine_config(cfg.engine)
+    if not isinstance(engine_cfg, HFEngineConfig):
+        log.error("serve runs HF engines only; vLLM is served by scripts/vllm_serve.sh")
+        raise typer.Exit(code=1)
+    log.info(
+        "Serving %s (%s) on %s:%d, max_batch=%d, max_wait_ms=%s",
+        engine_cfg.model_id,
+        engine_cfg.attn_implementation,
+        cfg.host,
+        cfg.port,
+        cfg.max_batch,
+        cfg.max_wait_ms,
+    )
+    if dry_run:
+        return
+    import uvicorn
+
+    from asr_assess.inference import factory
+    from asr_assess.serving.app import create_app
+    from asr_assess.serving.batcher import Batcher
+
+    batcher = Batcher(factory.make_engine(engine_cfg), cfg.max_batch, cfg.max_wait_ms / 1000)
+    uvicorn.run(create_app(batcher, cfg.sample_rate), host=cfg.host, port=cfg.port)
+
+
 LOADTEST_PACKAGES = ["httpx", "numpy", "soundfile", "pynvml"]
 
 
@@ -252,8 +284,13 @@ def loadtest(
     worst_s = (
         len(chosen.concurrency_levels) * chosen.repeats * (chosen.warmup_s + chosen.steady_state_s)
     )
-    log.info("%d clips; levels %s x %d repeats; at most ~%.0f min before bisection",
-             len(clips), chosen.concurrency_levels, chosen.repeats, worst_s / 60)  # fmt: skip
+    log.info(
+        "%d clips; levels %s x %d repeats; at most ~%.0f min before bisection",
+        len(clips),
+        chosen.concurrency_levels,
+        chosen.repeats,
+        worst_s / 60,
+    )
     if dry_run:
         return
     run = LoadTestRun(loadtest=cfg, profile=profile, url=url, label=label, max_tokens=max_tokens)
