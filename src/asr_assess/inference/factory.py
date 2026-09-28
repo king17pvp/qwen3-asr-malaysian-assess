@@ -11,5 +11,9 @@ def make_engine(cfg: HFEngineConfig | VLLMHTTPEngineConfig) -> ASREngine:
             from asr_assess.inference.hf_engine import HFEngine
 
             return HFEngine(cfg)
+        case VLLMHTTPEngineConfig():
+            from asr_assess.inference.vllm_engine import VLLMHTTPEngine
+
+            return VLLMHTTPEngine(cfg)
         case _:
             raise ValueError(f"Unknown engine kind: {cfg.kind!r}")
