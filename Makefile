@@ -1,5 +1,5 @@
 # Thin aliases for `uv run asr-assess ...`; stage targets are added with their stages.
-.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge eval-ft test lint format
+.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge eval-ft serve-vllm test lint format
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -16,6 +16,8 @@ check-configs: ## Validate the shipped YAML configs
 	uv run asr-assess check-config engine configs/engines/hf_ft.yaml
 	uv run asr-assess check-config eval configs/eval.yaml
 	uv run asr-assess check-config bench configs/bench.yaml
+	uv run asr-assess check-config engine configs/engines/vllm_ft.yaml
+	uv run asr-assess check-config vllm configs/vllm/default.yaml
 
 data-plan: ## Plan the dataset from Hub metadata only (no audio download)
 	uv run --extra data asr-assess data --dry-run
@@ -42,6 +44,9 @@ merge: ## Merge the best adapter, verify weight deltas, reload + transcribe (tra
 eval-ft: ## Fine-tuned WER/CER on eval and control, same settings as eval-base
 	uv run --extra train asr-assess eval --engine configs/engines/hf_ft.yaml --manifest eval
 	uv run --extra train asr-assess eval --engine configs/engines/hf_ft.yaml --manifest control
+
+serve-vllm: ## Stock vllm serve from CFG (default configs/vllm/default.yaml; serve extra)
+	bash scripts/vllm_serve.sh $(or $(CFG),configs/vllm/default.yaml)
 
 test: ## CPU-only test suite
 	uv run pytest

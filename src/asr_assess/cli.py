@@ -108,6 +108,17 @@ def data(
     build_dataset(cfg, sources, record, dry_run=dry_run)
 
 
+@app.command("vllm-args")
+def vllm_args_command(
+    path: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="configs/vllm/*.yaml")],
+) -> None:
+    """Print `vllm serve` arguments for a vLLM config, one per line (used by vllm_serve.sh)."""
+    from asr_assess.serving.vllm_args import vllm_args
+
+    for arg in vllm_args(load_config(path, VLLMServeConfig)):
+        typer.echo(arg)
+
+
 INFERENCE_PACKAGES = ["torch", "transformers", "numpy", "jiwer", "soundfile"]
 
 

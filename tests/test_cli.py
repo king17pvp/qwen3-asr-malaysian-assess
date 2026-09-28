@@ -168,3 +168,13 @@ def test_merge_calls_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["merge", "--config", LORA, "--engine", FT_ENGINE])
     assert result.exit_code == 0, result.output
     assert calls == [("lora", "checkpoints/merged/lora")]
+
+
+def test_vllm_args_prints_one_argument_per_line() -> None:
+    from asr_assess.core.config import VLLMServeConfig, load_config
+    from asr_assess.serving.vllm_args import vllm_args
+
+    path = CONFIGS / "vllm" / "default.yaml"
+    result = runner.invoke(app, ["vllm-args", str(path)])
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == vllm_args(load_config(path, VLLMServeConfig))
