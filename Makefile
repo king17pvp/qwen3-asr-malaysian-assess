@@ -1,5 +1,5 @@
 # Thin aliases for `uv run asr-assess ...`; stage targets are added with their stages.
-.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge eval-ft serve-hf serve-vllm loadtest report test lint format
+.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge push eval-ft serve-hf serve-vllm loadtest report test lint format
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -48,6 +48,9 @@ train: ## Decoder-only LoRA fine-tuning; best epoch by dev loss (GPU box, train 
 
 merge: ## Merge the best adapter, verify weight deltas, reload + transcribe (train extra)
 	uv run --extra train asr-assess merge --engine configs/engines/hf_ft.yaml
+
+push: ## Upload the verified merge + model card to the Hub as REPO (private; data extra)
+	uv run --extra data asr-assess push --repo $(REPO)
 
 eval-ft: ## Fine-tuned WER/CER on eval and control, same settings as eval-base
 	uv run --extra train asr-assess eval --engine configs/engines/hf_ft.yaml --manifest eval

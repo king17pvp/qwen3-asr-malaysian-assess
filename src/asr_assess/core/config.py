@@ -227,6 +227,7 @@ class LoraTrainConfig(StrictModel):
     merged_dir: Path  # merged standalone checkpoints, per run
     results_dir: Path  # train_summary.json and log_history.jsonl, per run
     merge_results_dir: Path  # weight_deltas.json, smoke.jsonl, merge_summary.json, per run
+    push_results_dir: Path  # push_summary.json (Hub repo and commit), per run
     sample_rate: PositiveInt
     attn_implementation: Literal["eager", "sdpa", "flash_attention_2"]
     smoke_clips: PositiveInt  # dev clips transcribed after merging

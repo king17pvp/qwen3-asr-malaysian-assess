@@ -132,7 +132,7 @@ FT_ENGINE = str(CONFIGS / "engines" / "hf_ft.yaml")
 
 
 def test_train_and_merge_offer_help() -> None:
-    for command, flag in [("train", "--smoke"), ("merge", "--engine")]:
+    for command, flag in [("train", "--smoke"), ("merge", "--engine"), ("push", "--repo")]:
         result = runner.invoke(app, [command, "--help"])
         assert result.exit_code == 0
         assert flag in click.unstyle(result.output)
@@ -168,6 +168,34 @@ def test_merge_calls_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["merge", "--config", LORA, "--engine", FT_ENGINE])
     assert result.exit_code == 0, result.output
     assert calls == [("lora", "checkpoints/merged/lora")]
+
+
+def test_push_calls_the_library_private_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[Any, ...]] = []
+    hub = object()
+
+    def fake(cfg: Any, name: str, repo: str, public: bool, *rest: Any) -> None:
+        evals, record, api = rest
+        calls.append((name, repo, public, evals, api, record.config["repo_id"]))
+
+    metrics = tmp_path / "metrics.json"
+    metrics.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("asr_assess.training.publish.run_push", fake)
+    monkeypatch.setattr("asr_assess.training.publish.hub_client", lambda: hub)
+    base = ["push", "--config", LORA, "--repo", "me/m"]
+    assert runner.invoke(app, base).exit_code == 0
+    result = runner.invoke(app, [*base, "--public", "--eval-metrics", str(metrics)])
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ("lora", "me/m", False, [], hub, "me/m"),
+        ("lora", "me/m", True, [metrics], hub, "me/m"),
+    ]
+
+
+def test_push_requires_a_repo() -> None:
+    assert runner.invoke(app, ["push", "--config", LORA]).exit_code != 0
 
 
 def test_vllm_args_prints_one_argument_per_line() -> None:

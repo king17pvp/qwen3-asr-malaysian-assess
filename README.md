@@ -81,6 +81,23 @@ before/after WER differs by fine-tuning alone.
 Tests that need the `train` extra but no GPU (the real processor and a tiny random Qwen3-ASR
 run through train → merge → reload): `uv run --extra train pytest -m hf`.
 
+## Publishing to the Hugging Face Hub
+
+`push` uploads a merged checkpoint that passed its weight-delta check, plus a generated model card
+(base model, LoRA settings, training commit, smoke transcripts and, if given, WER/CER tables). The
+repo is private unless `--public` is passed. Log in first with `hf auth login` or set `HF_TOKEN`.
+
+```bash
+make push REPO=<user>/qwen3-asr-malaysian   # + results/push/lora/push_summary.json (Hub commit)
+# same, with public visibility and the fine-tuned WER in the card:
+uv run --extra data asr-assess push --repo <user>/qwen3-asr-malaysian --public \
+  --eval-metrics results/eval/hf_ft-eval/metrics.json \
+  --eval-metrics results/eval/hf_ft-control/metrics.json
+```
+
+After that, `model_id: <user>/qwen3-asr-malaysian` in `configs/engines/hf_ft.yaml` (or
+`vllm serve <user>/qwen3-asr-malaysian`) loads the model from the Hub instead of `checkpoints/`.
+
 ## Serving and load test (GPU)
 
 Every journey row serves the fine-tuned merged checkpoint (`checkpoints/merged/lora`) behind the

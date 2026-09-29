@@ -390,6 +390,16 @@ class TrainRun(StrictModel):
     smoke: bool
 
 
+class PushRun(StrictModel):
+    """Everything that determines a push; stamped into push_summary.json."""
+
+    lora: LoraTrainConfig
+    run_name: str
+    repo_id: str
+    public: bool
+    eval_metrics: list[Path]
+
+
 class MergeRun(StrictModel):
     """Everything that determines a merge; stamped into merge_summary.json."""
 
@@ -433,3 +443,25 @@ def merge(
     run = MergeRun(lora=cfg, engine=engine_cfg, run_name=name)
     record = collect_run_record(run, TRAIN_PACKAGES, Path.cwd())
     export.run_merge(cfg, engine_cfg, name, record)
+
+
+@app.command()
+def push(
+    repo: Annotated[str, typer.Option(help="Hub repo id, e.g. <user>/qwen3-asr-malaysian.")],
+    config: LoraOption = Path("configs/lora.yaml"),
+    run_name: Annotated[str | None, typer.Option(help="The merged run. Default: <config>.")] = None,
+    public: Annotated[bool, typer.Option(help="Create the repo public (default private).")] = False,
+    eval_metrics: Annotated[
+        list[Path] | None,
+        typer.Option(exists=True, dir_okay=False, help="metrics.json to tabulate in the card."),
+    ] = None,
+) -> None:
+    """Upload a verified merge and a generated model card to the Hub (needs the `data` extra)."""
+    from asr_assess.training import publish
+
+    cfg = load_config(config, LoraTrainConfig)
+    name = run_name or config.stem
+    metrics = eval_metrics or []
+    run = PushRun(lora=cfg, run_name=name, repo_id=repo, public=public, eval_metrics=metrics)
+    record = collect_run_record(run, ["huggingface-hub"], Path.cwd())
+    publish.run_push(cfg, name, repo, public, metrics, record, publish.hub_client())
