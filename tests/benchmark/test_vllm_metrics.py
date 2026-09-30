@@ -8,7 +8,17 @@ SAMPLE = (Path(__file__).parent / "data" / "vllm_metrics_sample.txt").read_text(
 
 
 def test_parses_running_waiting_and_kv() -> None:
-    assert parse_gauges(SAMPLE) == {"running": 3.0, "waiting": 1.0, "kv_cache_usage": 0.42}
+    expected = {"running": 32.0, "waiting": 0.0, "kv_cache_usage": 0.02830601092896179}
+    assert parse_gauges(SAMPLE) == expected
+
+
+def test_waiting_by_reason_is_not_added_to_waiting() -> None:
+    text = (
+        "vllm:num_requests_waiting 3.0\n"
+        'vllm:num_requests_waiting_by_reason{reason="capacity"} 2.0\n'
+        'vllm:num_requests_waiting_by_reason{reason="deferred"} 1.0\n'
+    )
+    assert parse_gauges(text) == {"waiting": 3.0}
 
 
 def test_sums_label_sets_and_ignores_comments() -> None:

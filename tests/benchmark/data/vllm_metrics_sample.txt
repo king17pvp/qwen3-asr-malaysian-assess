@@ -1,12 +1,7 @@
-# HELP vllm:num_requests_running Number of requests in model execution batches.
-# TYPE vllm:num_requests_running gauge
-vllm:num_requests_running{engine="0",model_name="checkpoints/merged/lora"} 3.0
-# HELP vllm:num_requests_waiting Number of requests waiting to be processed.
-# TYPE vllm:num_requests_waiting gauge
-vllm:num_requests_waiting{engine="0",model_name="checkpoints/merged/lora"} 1.0
-# HELP vllm:kv_cache_usage_perc KV-cache usage. 1 means 100 percent usage.
-# TYPE vllm:kv_cache_usage_perc gauge
-vllm:kv_cache_usage_perc{engine="0",model_name="checkpoints/merged/lora"} 0.42
-# HELP vllm:prompt_tokens_total Number of prefill tokens processed.
-# TYPE vllm:prompt_tokens_total counter
-vllm:prompt_tokens_total{engine="0",model_name="checkpoints/merged/lora"} 12345.0
+# Scheduler gauges from a real vLLM 0.30.0 /metrics scrape (configs/vllm/default.yaml, RTX 3090,
+# 32 streams of the vllm-default load test), trimmed to the series the parser reads or must skip.
+vllm:num_requests_running{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian"} 32.0
+vllm:num_requests_waiting{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian",reason="capacity"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian",reason="deferred"} 0.0
+vllm:kv_cache_usage_perc{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian"} 0.02830601092896179
