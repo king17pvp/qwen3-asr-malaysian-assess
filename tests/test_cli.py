@@ -50,7 +50,8 @@ def test_check_config_rejects_invalid_file(tmp_path: Path) -> None:
 def test_import_does_not_load_heavy_dependencies() -> None:
     code = (
         "import sys, asr_assess.cli; "
-        "heavy = {'torch', 'transformers', 'peft', 'vllm', 'librosa'} & set(sys.modules); "
+        "heavy = {'torch', 'transformers', 'peft', 'vllm', 'librosa', 'fastapi', 'httpx', 'pynvml',"
+        " 'uvicorn', 'matplotlib'} & set(sys.modules); "
         "sys.exit(len(heavy))"
     )
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
@@ -131,7 +132,7 @@ FT_ENGINE = str(CONFIGS / "engines" / "hf_ft.yaml")
 
 
 def test_train_and_merge_offer_help() -> None:
-    for command, flag in [("train", "--smoke"), ("merge", "--engine")]:
+    for command, flag in [("train", "--smoke"), ("merge", "--engine"), ("push", "--repo")]:
         result = runner.invoke(app, [command, "--help"])
         assert result.exit_code == 0
         assert flag in click.unstyle(result.output)
@@ -166,4 +167,135 @@ def test_merge_calls_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("asr_assess.training.export.run_merge", fake)
     result = runner.invoke(app, ["merge", "--config", LORA, "--engine", FT_ENGINE])
     assert result.exit_code == 0, result.output
-    assert calls == [("lora", "checkpoints/merged/lora")]
+    assert calls == [("lora", "king17pvp/qwen3-asr-1.7b-malaysian")]
+
+
+def test_push_calls_the_library_private_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[Any, ...]] = []
+    hub = object()
+
+    def fake(cfg: Any, name: str, repo: str, public: bool, *rest: Any) -> None:
+        evals, record, api = rest
+        calls.append((name, repo, public, evals, api, record.config["repo_id"]))
+
+    metrics = tmp_path / "metrics.json"
+    metrics.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("asr_assess.training.publish.run_push", fake)
+    monkeypatch.setattr("asr_assess.training.publish.hub_client", lambda: hub)
+    base = ["push", "--config", LORA, "--repo", "me/m"]
+    assert runner.invoke(app, base).exit_code == 0
+    result = runner.invoke(app, [*base, "--public", "--eval-metrics", str(metrics)])
+    assert result.exit_code == 0, result.output
+    assert calls == [
+        ("lora", "me/m", False, [], hub, "me/m"),
+        ("lora", "me/m", True, [metrics], hub, "me/m"),
+    ]
+
+
+def test_push_requires_a_repo() -> None:
+    assert runner.invoke(app, ["push", "--config", LORA]).exit_code != 0
+
+
+def test_vllm_args_prints_one_argument_per_line() -> None:
+    from asr_assess.core.config import VLLMServeConfig, load_config
+    from asr_assess.serving.vllm_args import vllm_args
+
+    path = CONFIGS / "vllm" / "default.yaml"
+    result = runner.invoke(app, ["vllm-args", str(path)])
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == vllm_args(load_config(path, VLLMServeConfig))
+
+
+def loadtest_config(tmp_path: Path) -> Path:
+    entries = write_clips(tmp_path, [("a", 2.5, "2-5", "hello")])
+    write_manifest(tmp_path / "pool.jsonl", entries)
+    text = (CONFIGS / "loadtest.yaml").read_text(encoding="utf-8")
+    text = text.replace("data/manifests/eval.jsonl", str(tmp_path / "pool.jsonl"))
+    text = text.replace("output_dir: results/loadtest", f"output_dir: {tmp_path / 'out'}")
+    path = tmp_path / "loadtest.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def invoke_loadtest(config: Path, *extra: str) -> Result:
+    args = ["loadtest", "--url", "http://x", "--label", "l", "--config", str(config), *extra]
+    return runner.invoke(app, args)
+
+
+def test_loadtest_dry_run_sends_nothing_and_writes_nothing(tmp_path: Path) -> None:
+    result = invoke_loadtest(loadtest_config(tmp_path), "--profile", "quick", "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert not (tmp_path / "out" / "l").exists()
+
+
+def test_loadtest_unknown_profile_is_rejected(tmp_path: Path) -> None:
+    result = invoke_loadtest(loadtest_config(tmp_path), "--profile", "nope", "--dry-run")
+    assert result.exit_code == 1
+
+
+def test_loadtest_refuses_existing_label_before_loading_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = loadtest_config(tmp_path)
+    (tmp_path / "out" / "l").mkdir(parents=True)
+
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("the pool must not be built")
+
+    monkeypatch.setattr("asr_assess.benchmark.loadtest.build_pool", boom)
+    assert invoke_loadtest(config, "--dry-run").exit_code == 1
+
+
+def test_serve_dry_run_loads_no_model() -> None:
+    code = (
+        "import sys; from typer.testing import CliRunner; from asr_assess.cli import app; "
+        "r = CliRunner().invoke(app, ['serve', '--config', 'configs/serve/hf_baseline.yaml', "
+        "'--dry-run']); "
+        "heavy = {'torch', 'transformers', 'uvicorn', 'fastapi'} & set(sys.modules); "
+        "sys.exit(r.exit_code or len(heavy))"
+    )
+    root = CONFIGS.parent
+    assert subprocess.run([sys.executable, "-c", code], cwd=root, check=False).returncode == 0
+
+
+def test_serve_rejects_a_vllm_engine(tmp_path: Path) -> None:
+    serve_cfg = tmp_path / "s.yaml"
+    serve_cfg.write_text(
+        f"engine: {CONFIGS / 'engines' / 'vllm_ft.yaml'}\nhost: 0.0.0.0\nport: 8001\n"
+        "max_batch: 1\nmax_wait_ms: 0\nsample_rate: 16000\n",
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["serve", "--config", str(serve_cfg), "--dry-run"])
+    assert result.exit_code == 1
+
+
+@pytest.mark.parametrize("name", ["hf_baseline", "hf_sdpa", "hf_batched"])
+def test_shipped_serve_configs_are_valid(name: str) -> None:
+    path = CONFIGS / "serve" / f"{name}.yaml"
+    result = runner.invoke(app, ["check-config", "serve", str(path)])
+    assert result.exit_code == 0, result.output
+
+
+@pytest.mark.parametrize("name", ["default", "tuned", "cpu_path", "fp8", "eager"])
+def test_shipped_vllm_configs_are_valid(name: str) -> None:
+    path = CONFIGS / "vllm" / f"{name}.yaml"
+    result = runner.invoke(app, ["check-config", "vllm", str(path)])
+    assert result.exit_code == 0, result.output
+
+
+def test_vllm_journey_steps_differ_from_tuned_only_in_their_change() -> None:
+    from asr_assess.core.config import VLLMServeConfig, load_config
+
+    def load(name: str) -> dict[str, object]:
+        return load_config(CONFIGS / "vllm" / f"{name}.yaml", VLLMServeConfig).model_dump()
+
+    tuned = load("tuned")
+    changes: dict[str, dict[str, object]] = {
+        "cpu_path": {"api_server_count": 2},
+        "fp8": {"quantization": "fp8", "kv_cache_dtype": "fp8"},
+        "eager": {"enforce_eager": True},
+    }
+    for name, change in changes.items():
+        assert load(name) == tuned | change, name

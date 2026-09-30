@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from asr_assess.core.config import EngineConfig, LoraTrainConfig, load_config
+from asr_assess.core.config import HFEngineConfig, LoraTrainConfig, load_config
 from asr_assess.core.manifest import write_manifest
 from asr_assess.core.run_record import RunRecord
 from asr_assess.inference import factory
@@ -75,13 +75,13 @@ def test_train_merge_reload(
     assert (tmp_path / "ckpt" / "tiny" / "best" / "adapter_config.json").exists()
 
     # A random model may emit nothing; the reload itself is what this test checks.
-    engine_cfg = load_config(CONFIGS / "engines" / "hf_ft.yaml", EngineConfig).model_copy(
+    engine_cfg = load_config(CONFIGS / "engines" / "hf_ft.yaml", HFEngineConfig).model_copy(
         update={"device": "cpu", "dtype": "float32", "max_new_tokens": 4}
     )
     real_make_engine = factory.make_engine
     reloaded: list[object] = []
 
-    def make_and_check(ec: EngineConfig) -> ScriptedEngine:
+    def make_and_check(ec: HFEngineConfig) -> ScriptedEngine:
         reloaded.append(real_make_engine(ec))  # loads the merged checkpoint for real
         return ScriptedEngine({entries[0].audio: "satu 0"})
 

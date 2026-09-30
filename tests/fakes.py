@@ -1,12 +1,18 @@
-"""Test doubles shared across test packages: a scripted ASR engine, a clock, WAV fixtures."""
+"""Test doubles shared across test packages: engines, a clock, a server transport, WAV fixtures."""
 
-from collections.abc import Mapping, Sequence
+import asyncio
+from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
 
+from asr_assess.benchmark.client import TransportResult
+from asr_assess.benchmark.env_info import EnvInfo
+from asr_assess.benchmark.loadtest import RunMeta
 from asr_assess.core.audio import write_wav
 from asr_assess.core.manifest import ManifestEntry
+from asr_assess.core.run_record import RunRecord
 from asr_assess.inference.engine import AudioRequest, Transcript
 
 SAMPLE_RATE = 16000
@@ -47,6 +53,57 @@ class ScriptedEngine:
             audio_s = sum(len(r.samples) for r in batch) / SAMPLE_RATE
             self._clock.advance(self._rtf * audio_s)
         return [Transcript(r.id, self._texts.get(r.id, ""), r.language) for r in batch]
+
+
+class FakeTransport:
+    """A server whose latency depends on how many requests are in flight (itself included)."""
+
+    def __init__(
+        self,
+        latency: Callable[[int], float],
+        text: Callable[[bytes, int], str] | None = None,
+        fail_at: int | None = None,
+    ) -> None:
+        self._latency, self._text, self._fail_at = latency, text, fail_at
+        self.inflight = 0
+        self.max_inflight = 0
+
+    async def transcribe(self, wav: bytes) -> TransportResult:
+        self.inflight += 1
+        seen = self.inflight
+        self.max_inflight = max(self.max_inflight, seen)
+        try:
+            await asyncio.sleep(self._latency(seen))
+        finally:
+            self.inflight -= 1
+        if self._fail_at is not None and seen >= self._fail_at:
+            return TransportResult("http_500")
+        return TransportResult("ok", self._text(wav, seen) if self._text else "")
+
+    async def wait_ready(self, timeout_s: float) -> bool:
+        return True
+
+    async def scrape_metrics(self) -> str | None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
+
+
+def fake_meta(label: str = "t") -> RunMeta:
+    """Provenance for a load-test run against a fake server."""
+    record = RunRecord(
+        git_commit="abc",
+        git_dirty=False,
+        config={},
+        config_hash="h",
+        gpu_name=None,
+        python_version="3.12",
+        package_versions={},
+        timestamp=datetime(2026, 9, 28, tzinfo=UTC),
+    )
+    env = EnvInfo([], None, None, None, None, "linux", "3.12", {})
+    return RunMeta(label=label, url="http://fake", server_config=None, record=record, env=env)
 
 
 def write_clips(

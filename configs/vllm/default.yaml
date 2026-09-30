@@ -1,0 +1,3 @@
+# Journey row "vLLM": stock `vllm serve` defaults, bf16 from the checkpoint config.
+model: king17pvp/qwen3-asr-1.7b-malaysian
+port: 8000

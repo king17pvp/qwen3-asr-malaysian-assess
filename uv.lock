@@ -176,6 +176,13 @@ data = [
     { name = "huggingface-hub" },
     { name = "pyarrow" },
 ]
+http = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pynvml" },
+    { name = "python-multipart" },
+    { name = "uvicorn" },
+]
 report = [
     { name = "matplotlib" },
 ]
@@ -183,8 +190,10 @@ serve = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pynvml" },
+    { name = "python-multipart" },
     { name = "torch", version = "2.13.0+cu129", source = { registry = "https://download.pytorch.org/whl/cu129" } },
     { name = "torchaudio" },
+    { name = "torchcodec" },
     { name = "torchvision" },
     { name = "uvicorn" },
     { name = "vllm", extra = ["audio"], marker = "extra == 'extra-10-asr-assess-serve'" },
@@ -210,9 +219,10 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", marker = "extra == 'train'", specifier = "==1.15.0" },
+    { name = "asr-assess", extras = ["http"], marker = "extra == 'serve'" },
     { name = "datasets", marker = "extra == 'train'", specifier = "==5.0.1" },
-    { name = "fastapi", marker = "extra == 'serve'", specifier = "==0.136.3" },
-    { name = "httpx", marker = "extra == 'serve'", specifier = "==0.28.1" },
+    { name = "fastapi", marker = "extra == 'http'", specifier = "==0.136.3" },
+    { name = "httpx", marker = "extra == 'http'", specifier = "==0.28.1" },
     { name = "huggingface-hub", marker = "extra == 'data'", specifier = "==1.33.0" },
     { name = "jiwer", specifier = "==4.0.0" },
     { name = "librosa", specifier = "==1.0.0" },
@@ -221,20 +231,22 @@ requires-dist = [
     { name = "peft", marker = "extra == 'train'", specifier = "==0.21.0" },
     { name = "pyarrow", marker = "extra == 'data'", specifier = "==25.0.1" },
     { name = "pydantic", specifier = "==2.13.5" },
-    { name = "pynvml", marker = "extra == 'serve'", specifier = "==13.0.1" },
+    { name = "pynvml", marker = "extra == 'http'", specifier = "==13.0.1" },
+    { name = "python-multipart", marker = "extra == 'http'", specifier = "==0.0.32" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "rich", specifier = "==15.0.0" },
     { name = "soundfile", specifier = "==0.14.0" },
     { name = "torch", marker = "extra == 'serve'", specifier = "==2.13.0", index = "https://download.pytorch.org/whl/cu129", conflict = { package = "asr-assess", extra = "serve" } },
     { name = "torch", marker = "extra == 'train'", specifier = "==2.14.0", index = "https://download.pytorch.org/whl/cu126", conflict = { package = "asr-assess", extra = "train" } },
     { name = "torchaudio", marker = "extra == 'serve'", specifier = "==2.11.0", index = "https://download.pytorch.org/whl/cu129", conflict = { package = "asr-assess", extra = "serve" } },
+    { name = "torchcodec", marker = "extra == 'serve'", specifier = "==0.16.0", index = "https://download.pytorch.org/whl/cu129", conflict = { package = "asr-assess", extra = "serve" } },
     { name = "torchvision", marker = "extra == 'serve'", specifier = "==0.28.0", index = "https://download.pytorch.org/whl/cu129", conflict = { package = "asr-assess", extra = "serve" } },
     { name = "transformers", marker = "extra == 'train'", specifier = "==5.17.0" },
     { name = "typer", specifier = "==0.27.2" },
-    { name = "uvicorn", marker = "extra == 'serve'", specifier = "==0.53.0" },
+    { name = "uvicorn", marker = "extra == 'http'", specifier = "==0.53.0" },
     { name = "vllm", extras = ["audio"], marker = "extra == 'serve'", specifier = "==0.30.0", index = "https://wheels.vllm.ai/0.30.0/cu129", conflict = { package = "asr-assess", extra = "serve" } },
 ]
-provides-extras = ["train", "data", "serve", "report"]
+provides-extras = ["train", "data", "http", "serve", "report"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -3566,11 +3578,11 @@ wheels = [
 
 [[package]]
 name = "torchcodec"
-version = "0.16.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.16.0+cu129"
+source = { registry = "https://download.pytorch.org/whl/cu129" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4e/b7/44004280d1e80c492af54d2d94332834091bc59e211827cfc0232aca03a3/torchcodec-0.16.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:d26fe96259211115c17fb2bd071fbdf4da264cf04bb88fba006ffffb9c23c5a1", size = 8368173, upload-time = "2026-08-13T11:56:09.724Z" },
-    { url = "https://files.pythonhosted.org/packages/ca/5b/2a15225d77fc2ef857bd290a98f1de99f0db03e104f93ce3af7bea704f4a/torchcodec-0.16.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5309c29e31b719f81dba75fcfa49a9ce6a38d069d7f570767466fe634783e7ba", size = 9471149, upload-time = "2026-08-13T11:56:11.499Z" },
+    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.16.0%2Bcu129-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:2a92cc904992e5727a877e00205e43c56bbfbff22df001ab8eac8e6519d25cad", upload-time = "2026-08-13T12:00:13Z" },
+    { url = "https://download.pytorch.org/whl/cu129/torchcodec-0.16.0%2Bcu129-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1d103c30631a2c04b2acd1602a56af7762d41051700d2077c2b6a964dbcf7f2c", upload-time = "2026-08-13T12:00:14Z" },
 ]
 
 [[package]]

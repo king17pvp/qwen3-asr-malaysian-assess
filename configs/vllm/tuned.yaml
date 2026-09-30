@@ -1,0 +1,9 @@
+# Journey row "vLLM tuned". Hypothesis: the defaults cap concurrency (max_num_seqs) or prefill
+# chunking (max_num_batched_tokens) below what 24 GB allows. Evidence: `waiting` > 0 in /metrics
+# while KV-cache usage is low. Starting values; each change is its own labelled run.
+model: king17pvp/qwen3-asr-1.7b-malaysian
+port: 8000
+gpu_memory_utilization: 0.92
+max_num_seqs: 128
+max_num_batched_tokens: 16384
+max_model_len: 4096      # 30 s of audio ~ 375 audio tokens + prompt + 256 new tokens

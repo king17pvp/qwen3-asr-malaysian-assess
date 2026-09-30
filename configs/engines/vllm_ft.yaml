@@ -1,0 +1,6 @@
+# Fine-tuned model served by `vllm serve` (see configs/vllm/*.yaml); used by eval/bench.
+kind: vllm_http
+base_url: http://localhost:8000
+request_timeout_s: 120
+max_new_tokens: 256       # same budget as the HF engines
+language_hint: auto       # the endpoint takes ISO codes; the journey runs without a hint

@@ -1,17 +1,29 @@
 # Closed-loop load test: each stream sends one utterance, waits, then sends the next.
 # Per-request RTF = end-to-end latency (including queueing) / audio duration.
-concurrency_levels: [1, 2, 4, 8, 16, 32, 64, 128]
-bisect_near_limit: true
-bisect_max_steps: 4
-warmup_s: 30        # discarded
-steady_state_s: 120
-repeats: 3
+# `full` for Baseline and the final config; `quick` for intermediate journey rows.
+profiles:
+  full:
+    concurrency_levels: [1, 2, 4, 8, 16, 32, 64, 128]
+    repeats: 3
+    warmup_s: 30          # discarded
+    steady_state_s: 120
+    bisect: true
+    bisect_max_steps: 4
+    stop_after_failures: 1  # run one level past the first failure, then stop raising
+  quick:
+    concurrency_levels: [1, 2, 4, 8, 16, 32, 64, 128]
+    repeats: 1
+    warmup_s: 15
+    steady_state_s: 60
+    bisect: true
+    bisect_max_steps: 3
+    stop_after_failures: 1
 request_timeout_s: 60
 gpu_sample_hz: 10
+metrics_scrape_hz: 1      # vLLM /metrics; skipped when the server has none
 
 audio_pool:
-  manifest: data/manifests/eval.jsonl   # mixes the 2-5 / 5-15 / 15-30 s buckets
-  size: 200
+  manifest: data/manifests/eval.jsonl   # every eval clip; mixes the 2-5 / 5-15 / 15-30 s buckets
   seed: 1234
 
 thresholds:

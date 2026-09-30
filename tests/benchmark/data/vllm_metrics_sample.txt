@@ -1,0 +1,7 @@
+# Scheduler gauges from a real vLLM 0.30.0 /metrics scrape (configs/vllm/default.yaml, RTX 3090,
+# 32 streams of the vllm-default load test), trimmed to the series the parser reads or must skip.
+vllm:num_requests_running{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian"} 32.0
+vllm:num_requests_waiting{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian",reason="capacity"} 0.0
+vllm:num_requests_waiting_by_reason{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian",reason="deferred"} 0.0
+vllm:kv_cache_usage_perc{engine="0",model_name="king17pvp/qwen3-asr-1.7b-malaysian"} 0.02830601092896179

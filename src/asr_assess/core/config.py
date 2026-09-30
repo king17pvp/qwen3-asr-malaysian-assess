@@ -1,6 +1,6 @@
 """Typed configs for every YAML file, and a single loader.
 
-Eval, serve and vLLM models are added alongside the stages that use them.
+Engine YAMLs are a union selected by ``kind``; load them with ``load_engine_config``.
 """
 
 from itertools import pairwise
@@ -8,7 +8,15 @@ from pathlib import Path
 from typing import Annotated, Literal, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveFloat,
+    PositiveInt,
+    TypeAdapter,
+    model_validator,
+)
 
 from asr_assess.core.audio import Bucket
 from asr_assess.core.text import SUPPORTED_LANGUAGES
@@ -219,6 +227,7 @@ class LoraTrainConfig(StrictModel):
     merged_dir: Path  # merged standalone checkpoints, per run
     results_dir: Path  # train_summary.json and log_history.jsonl, per run
     merge_results_dir: Path  # weight_deltas.json, smoke.jsonl, merge_summary.json, per run
+    push_results_dir: Path  # push_summary.json (Hub repo and commit), per run
     sample_rate: PositiveInt
     attn_implementation: Literal["eager", "sdpa", "flash_attention_2"]
     smoke_clips: PositiveInt  # dev clips transcribed after merging
@@ -246,34 +255,43 @@ class LoadTestThresholds(StrictModel):
 
 
 class AudioPoolSettings(StrictModel):
-    """The seeded utterance pool replayed identically in every run."""
+    """The seeded utterance pool replayed identically in every run (every clip in the manifest)."""
 
     manifest: Path
-    size: PositiveInt
     seed: int
 
 
-class LoadTestConfig(StrictModel):
-    """configs/loadtest.yaml: closed-loop N-stream load test."""
+class LoadProfile(StrictModel):
+    """How much of the protocol a run gets: levels, repeats, window lengths, bisection."""
 
     concurrency_levels: list[PositiveInt] = Field(min_length=1)
-    bisect_near_limit: bool
-    bisect_max_steps: PositiveInt
+    repeats: PositiveInt
     warmup_s: float = Field(ge=0.0)
     steady_state_s: PositiveFloat
-    repeats: PositiveInt
-    request_timeout_s: PositiveFloat
-    gpu_sample_hz: PositiveFloat
-    audio_pool: AudioPoolSettings
-    thresholds: LoadTestThresholds
-    output_dir: Path
+    bisect: bool
+    bisect_max_steps: int = Field(ge=0)
+    stop_after_failures: PositiveInt
 
     @model_validator(mode="after")
-    def _levels_ascending(self) -> Self:
+    def _levels_start_at_one_and_ascend(self) -> Self:
         levels = self.concurrency_levels
+        if levels[0] != 1:
+            raise ValueError("concurrency_levels must start at 1 (the WER reference)")
         if any(b <= a for a, b in pairwise(levels)):
             raise ValueError("concurrency_levels must be strictly ascending")
         return self
+
+
+class LoadTestConfig(StrictModel):
+    """configs/loadtest.yaml: closed-loop N-stream load test with named profiles."""
+
+    profiles: dict[str, LoadProfile] = Field(min_length=1)
+    request_timeout_s: PositiveFloat
+    gpu_sample_hz: PositiveFloat
+    metrics_scrape_hz: PositiveFloat
+    audio_pool: AudioPoolSettings
+    thresholds: LoadTestThresholds
+    output_dir: Path
 
 
 # ---------------------------------------------------------------- inference
@@ -282,8 +300,8 @@ class LoadTestConfig(StrictModel):
 LanguageHint = Literal["auto", "manifest"]
 
 
-class EngineConfig(StrictModel):
-    """configs/engines/*.yaml: which ASR backend to run and how to load it."""
+class HFEngineConfig(StrictModel):
+    """configs/engines/hf_*.yaml: Qwen3-ASR through plain Transformers."""
 
     kind: Literal["hf"]
     model_id: str
@@ -292,6 +310,64 @@ class EngineConfig(StrictModel):
     attn_implementation: Literal["eager", "sdpa", "flash_attention_2"]
     max_new_tokens: PositiveInt
     language_hint: LanguageHint
+
+
+class VLLMHTTPEngineConfig(StrictModel):
+    """configs/engines/vllm_*.yaml: a running `vllm serve` over its transcription endpoint."""
+
+    kind: Literal["vllm_http"]
+    base_url: str
+    model: str | None = None  # None: the server's only model
+    request_timeout_s: PositiveFloat
+    max_new_tokens: PositiveInt
+    language_hint: Literal["auto"]  # the endpoint takes ISO codes; the journey runs without hints
+
+
+EngineConfig = Annotated[HFEngineConfig | VLLMHTTPEngineConfig, Field(discriminator="kind")]
+_ENGINE_ADAPTER: TypeAdapter[HFEngineConfig | VLLMHTTPEngineConfig] = TypeAdapter(EngineConfig)
+
+
+def load_engine_config(path: Path) -> HFEngineConfig | VLLMHTTPEngineConfig:
+    """Load an engine YAML; ``kind`` selects the backend's schema."""
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: top level must be a mapping")
+    return _ENGINE_ADAPTER.validate_python(raw)
+
+
+# ---------------------------------------------------------------- serving
+
+
+class ServeConfig(StrictModel):
+    """configs/serve/*.yaml: our HF server and its dynamic batching."""
+
+    engine: Path
+    host: str
+    port: PositiveInt
+    max_batch: PositiveInt
+    max_wait_ms: float = Field(ge=0.0)
+    sample_rate: PositiveInt
+
+
+class VLLMServeConfig(StrictModel):
+    """configs/vllm/*.yaml: `vllm serve` options; unset fields keep vLLM's defaults."""
+
+    model: str
+    port: PositiveInt
+    host: str | None = None
+    dtype: str | None = None
+    gpu_memory_utilization: float | None = Field(default=None, gt=0.0, le=1.0)
+    max_model_len: PositiveInt | None = None
+    max_num_seqs: PositiveInt | None = None
+    max_num_batched_tokens: PositiveInt | None = None
+    enforce_eager: bool = False
+    quantization: str | None = None
+    kv_cache_dtype: str | None = None
+    api_server_count: PositiveInt | None = None
+    extra_args: list[str] = Field(default_factory=list)  # flags this model does not cover
+
+
+# ---------------------------------------------------------------- evaluation
 
 
 class BootstrapSettings(StrictModel):

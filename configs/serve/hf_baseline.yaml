@@ -1,0 +1,7 @@
+# Journey row "Baseline": fine-tuned model, eager attention, one request at a time (no batching).
+engine: configs/engines/hf_ft.yaml
+host: 0.0.0.0
+port: 8001
+max_batch: 1
+max_wait_ms: 0
+sample_rate: 16000
