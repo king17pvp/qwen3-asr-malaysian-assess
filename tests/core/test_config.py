@@ -70,7 +70,7 @@ class TestShippedConfigs:
     def test_fine_tuned_engine_differs_from_baseline_only_in_weights(self) -> None:
         base = load_config(CONFIGS / "engines" / "hf_base.yaml", HFEngineConfig)
         tuned = load_config(CONFIGS / "engines" / "hf_ft.yaml", HFEngineConfig)
-        assert tuned.model_id == "checkpoints/merged/lora"
+        assert tuned.model_id == "king17pvp/qwen3-asr-1.7b-malaysian"
         assert tuned.model_copy(update={"model_id": base.model_id}) == base
 
     def test_loadtest_yaml_holds_the_spec_levels(self) -> None:

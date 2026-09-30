@@ -167,7 +167,7 @@ def test_merge_calls_the_library(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("asr_assess.training.export.run_merge", fake)
     result = runner.invoke(app, ["merge", "--config", LORA, "--engine", FT_ENGINE])
     assert result.exit_code == 0, result.output
-    assert calls == [("lora", "checkpoints/merged/lora")]
+    assert calls == [("lora", "king17pvp/qwen3-asr-1.7b-malaysian")]
 
 
 def test_push_calls_the_library_private_by_default(
