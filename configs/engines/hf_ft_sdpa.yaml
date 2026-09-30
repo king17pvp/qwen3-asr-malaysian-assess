@@ -1,7 +1,7 @@
 # Journey rows "FlashAttention/SDPA" and "Dynamic batching": hf_ft.yaml with SDPA attention
 # (PyTorch's fused kernels on Ampere; no flash-attn dependency).
 kind: hf
-model_id: checkpoints/merged/lora
+model_id: king17pvp/qwen3-asr-1.7b-malaysian
 dtype: bfloat16
 device: cuda
 attn_implementation: sdpa
