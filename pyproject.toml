@@ -42,6 +42,8 @@ serve = [
     "torch==2.13.0",
     "torchaudio==2.11.0",
     "torchvision==0.28.0",
+    # vLLM imports it for audio; the PyPI wheel is built for CUDA 13, so take the cu129 build.
+    "torchcodec==0.16.0",
     "asr-assess[http]",
 ]
 # Plot generation for reports only.
@@ -81,6 +83,7 @@ torch = [
 ]
 torchaudio = [{ index = "pytorch-cu129", extra = "serve" }]
 torchvision = [{ index = "pytorch-cu129", extra = "serve" }]
+torchcodec = [{ index = "pytorch-cu129", extra = "serve" }]
 vllm = [{ index = "vllm-cu129", extra = "serve" }]
 
 # cu126 runs on drivers >= CUDA 12.4 (TODO(gpu): confirm on the rented box with nvidia-smi).
