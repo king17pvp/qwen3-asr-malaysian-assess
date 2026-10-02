@@ -24,7 +24,8 @@ _HTTP_OK = 200
 
 @dataclass(frozen=True)
 class TransportResult:
-    """Outcome of one request: status is "ok", "timeout", "error" or "http_<code>"."""
+    """Outcome of one request: "ok", "timeout", "http_<code>", or "error:<cause>" where the cause
+    is the httpx exception class or "bad_body"."""
 
     status: str
     text: str = ""
@@ -80,14 +81,14 @@ class OpenAITranscriptionTransport:
             response = await self._client.post(ENDPOINT, data=self._fields, files=files)
         except self._httpx.TimeoutException:
             return TransportResult("timeout")
-        except self._httpx.HTTPError:
-            return TransportResult("error")
+        except self._httpx.HTTPError as e:
+            return TransportResult(f"error:{type(e).__name__}")
         if not response.is_success:
             return TransportResult(f"http_{response.status_code}")
         try:
             return TransportResult("ok", parse_transcription(response.json()))
         except (ValueError, json.JSONDecodeError):
-            return TransportResult("error")
+            return TransportResult("error:bad_body")
 
     async def wait_ready(self, timeout_s: float) -> bool:
         """Poll the health endpoint until it answers 200 or ``timeout_s`` passes."""
