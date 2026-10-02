@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import math
+import secrets
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
@@ -38,7 +39,7 @@ from asr_assess.core.load_results import (
 )
 from asr_assess.core.manifest import ManifestEntry
 from asr_assess.core.run_record import RunRecord
-from asr_assess.core.transcription_api import encode_wav
+from asr_assess.core.transcription_api import encode_wav, tag_wav
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +80,10 @@ async def run_stream(
     stop_at: float,
     clock: Clock,
 ) -> list[RequestRecord]:
-    """One closed-loop client; ``ids`` is (stream, level, repeat). Stops sending at ``stop_at``."""
+    """One closed-loop client; ``ids`` is (stream, level, repeat). Stops sending at ``stop_at``.
+
+    Each request's audio gets a random tag (``tag_wav``) so no server can serve a repeat from cache.
+    """
     stream, level, repeat = ids
     records: list[RequestRecord] = []
     i = 0
@@ -87,7 +91,7 @@ async def run_stream(
         clip = clips[order[i % len(order)]]
         i += 1
         sent = clock()
-        result = await transport.transcribe(clip.wav)
+        result = await transport.transcribe(tag_wav(clip.wav, secrets.randbits(64)))
         records.append(
             RequestRecord(
                 clip.id,
