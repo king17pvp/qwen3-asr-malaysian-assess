@@ -2,7 +2,7 @@
 
 import time
 
-from asr_assess.benchmark.gpu_monitor import GpuMonitor, GpuSample, summarize_gpu
+from asr_assess.benchmark.gpu_monitor import GpuMonitor, GpuSample, combine_readings, summarize_gpu
 
 
 class StepReader:
@@ -41,3 +41,8 @@ def test_a_failing_reader_stops_sampling_without_raising() -> None:
     with GpuMonitor(BrokenReader(), hz=200) as monitor:
         time.sleep(0.05)
     assert monitor.samples() == []
+
+
+def test_several_gpus_average_utilization_and_add_memory() -> None:
+    assert combine_readings([(80.0, 20.0), (60.0, 12.0)]) == (70.0, 32.0)
+    assert combine_readings([(88.0, 23.1)]) == (88.0, 23.1)
