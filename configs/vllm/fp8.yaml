@@ -8,3 +8,5 @@ max_num_batched_tokens: 16384
 max_model_len: 4096
 quantization: fp8
 kv_cache_dtype: fp8
+# vLLM 0.30.0 picks the CUTLASS FP8 kernel on sm86 (it needs sm89+) and crashes at startup; force Marlin.
+extra_args: ["--linear-backend", "marlin"]
