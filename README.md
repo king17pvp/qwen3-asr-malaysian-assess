@@ -156,9 +156,10 @@ vLLM notes:
   1.70% in both), a 0.06-point gap, so the client keeps `/v1/audio/transcriptions`.
 - The GPU is an RTX 3090 (Ampere). There, `quantization: fp8` is weight-only (W8A16) and gives
   no faster matmuls. vLLM 0.30 picks a CUTLASS FP8 kernel that needs sm89+ and crashes at startup,
-  so `fp8.yaml` forces Marlin (`--linear-backend marlin`). FP8 weights then cause a deterministic
-  repetition loop on one eval clip (eval WER 18.78%); FP8 KV cache alone (`fp8-kv.yaml`) keeps
-  accuracy (14.53%) but adds no capacity. See `reports/inference.md` §3.7.
+  so `fp8.yaml` forces Marlin (`--linear-backend marlin`). FP8 weights then send one eval clip into
+  a deterministic repetition loop; that single clip lifts eval WER to 18.78%, while the other 122
+  clips stay close to bf16 (14.67% vs 14.42%). FP8 KV cache alone (`fp8-kv.yaml`) has no loop
+  (14.53%) but adds no capacity. See `reports/inference.md` §3.7.
 
 ## Development
 
