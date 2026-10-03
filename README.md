@@ -2,7 +2,26 @@
 
 Fine-tune Qwen3-ASR-1.7B on Malaysian speech and optimise it for high-concurrency inference on one GPU (8nabler ML Engineer assessment).
 
-_Work in progress: this README will cover the uv quickstart, one command per result, and the hardware table._
+## Results
+
+| | |
+|---|---|
+| Fine-tuning (LoRA rank 16 on the decoder, 35 min of audio) | held-out WER **17.1% → 14.77%**, English control unchanged (1.7% → 1.70%) |
+| Max concurrent streams, P95 RTF ≤ 0.5 | **116** (vLLM 0.30.0, bf16, `configs/vllm/tuned.yaml`); Transformers baseline: 1 |
+| Max concurrent streams, P95 RTF ≤ 0.3 | **64** |
+| Throughput at the limit | ~440 audio-seconds per second, WER 14.6% under load |
+| Main bottleneck | one CPU core (vLLM's EngineCore), with the GPU at 75–88% |
+
+Reports: [fine-tuning](reports/finetuning.md) · [inference optimization](reports/inference.md) ·
+[final answers](reports/final_answers.md) · [baseline before fine-tuning](reports/ResultsBeforeFineTuning.md).
+Generated tables and plots: `results/plots/`. Fine-tuned model:
+`king17pvp/qwen3-asr-1.7b-malaysian` on the Hugging Face Hub (private).
+
+| Hardware | Used for |
+|---|---|
+| RTX 3090 24 GB + Intel i7-8700 (Vast.ai `C.53713864`) | all load tests, Part 2 offline baseline |
+| RTX 3090 24 GB + Xeon E5-2696 v3 (Vast.ai `C.53477159`) | LoRA training, merge, fine-tuned evals |
+| RTX 3090 24 GB + AMD Ryzen 7 5800X | pretrained-model evals (`reports/ResultsBeforeFineTuning.md`) |
 
 ## Data
 
