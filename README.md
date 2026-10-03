@@ -15,7 +15,7 @@ Fine-tune Qwen3-ASR-1.7B on Malaysian speech and optimise it for high-concurrenc
 Reports: [fine-tuning](reports/finetuning.md) · [inference optimization](reports/inference.md) ·
 [final answers](reports/final_answers.md) · [baseline before fine-tuning](reports/ResultsBeforeFineTuning.md).
 Generated tables and plots: `results/plots/`. Fine-tuned model:
-`king17pvp/qwen3-asr-1.7b-malaysian` on the Hugging Face Hub (private).
+`king17pvp/qwen3-asr-1.7b-malaysian` on the Hugging Face Hub public here: [Model link](https://huggingface.co/king17pvp/qwen3-asr-1.7b-malaysian).
 
 | Hardware | Used for |
 |---|---|
