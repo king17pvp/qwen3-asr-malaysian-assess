@@ -307,6 +307,18 @@ def test_vllm_journey_steps_differ_from_tuned_only_in_their_change() -> None:
         "fp8-w": {"quantization": "fp8", "extra_args": ["--linear-backend", "marlin"]},
         "fp8-kv": {"kv_cache_dtype": "fp8"},
         "eager": {"enforce_eager": True},
+        "dp2": {"extra_args": ["--data-parallel-size", "2"]},
     }
     for name, change in changes.items():
         assert load(name) == tuned | change, name
+
+
+def test_two_instances_split_one_gpu_and_differ_only_in_port() -> None:
+    from asr_assess.core.config import VLLMServeConfig, load_config
+
+    a, b = (
+        load_config(CONFIGS / "vllm" / f"two_instances_{n}.yaml", VLLMServeConfig) for n in "ab"
+    )
+    assert a.port != b.port
+    assert a.model_dump(exclude={"port"}) == b.model_dump(exclude={"port"})
+    assert (a.gpu_memory_utilization or 0) + (b.gpu_memory_utilization or 0) <= 0.92

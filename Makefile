@@ -1,5 +1,5 @@
 # Thin aliases for `uv run asr-assess ...`; stage targets are added with their stages.
-.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge push eval-ft serve-hf serve-vllm loadtest report test lint format
+.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge push eval-ft serve-hf serve-vllm serve-vllm-two loadtest report test lint format
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -22,6 +22,11 @@ check-configs: ## Validate the shipped YAML configs
 	uv run asr-assess check-config vllm configs/vllm/cpu_path.yaml
 	uv run asr-assess check-config vllm configs/vllm/fp8.yaml
 	uv run asr-assess check-config vllm configs/vllm/eager.yaml
+	uv run asr-assess check-config vllm configs/vllm/fp8-kv.yaml
+	uv run asr-assess check-config vllm configs/vllm/fp8-w.yaml
+	uv run asr-assess check-config vllm configs/vllm/two_instances_a.yaml
+	uv run asr-assess check-config vllm configs/vllm/two_instances_b.yaml
+	uv run asr-assess check-config vllm configs/vllm/dp2.yaml
 	uv run asr-assess check-config engine configs/engines/hf_ft_sdpa.yaml
 	uv run asr-assess check-config serve configs/serve/hf_baseline.yaml
 	uv run asr-assess check-config serve configs/serve/hf_sdpa.yaml
@@ -61,6 +66,9 @@ serve-hf: ## HF server from CFG (default configs/serve/hf_baseline.yaml; train +
 
 serve-vllm: ## Stock vllm serve from CFG (default configs/vllm/default.yaml; serve extra)
 	bash scripts/vllm_serve.sh $(or $(CFG),configs/vllm/default.yaml)
+
+serve-vllm-two: ## Two vllm serve instances (default: both on GPU 0, ports 8000/8001; serve extra)
+	bash scripts/vllm_serve_two.sh
 
 loadtest: ## Load test URL as LABEL; PROFILE=quick|full, SERVER_CFG copied into the summary
 	uv run --extra http asr-assess loadtest --url $(URL) --label $(LABEL) --profile $(or $(PROFILE),quick) $(if $(SERVER_CFG),--server-config $(SERVER_CFG))

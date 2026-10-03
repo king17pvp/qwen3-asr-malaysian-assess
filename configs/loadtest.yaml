@@ -18,6 +18,23 @@ profiles:
     bisect: true
     bisect_max_steps: 3
     stop_after_failures: 1
+  # Two-engine runs (configs/vllm/two_instances_*.yaml, dp2.yaml) can pass 128 streams.
+  quick_wide:
+    concurrency_levels: [1, 2, 4, 8, 16, 32, 64, 128, 192, 256]
+    repeats: 1
+    warmup_s: 15
+    steady_state_s: 60
+    bisect: true
+    bisect_max_steps: 4
+    stop_after_failures: 1
+  full_wide:
+    concurrency_levels: [1, 2, 4, 8, 16, 32, 64, 128, 192, 256]
+    repeats: 3
+    warmup_s: 30
+    steady_state_s: 120
+    bisect: true
+    bisect_max_steps: 5
+    stop_after_failures: 1
 request_timeout_s: 60
 gpu_sample_hz: 10
 metrics_scrape_hz: 1      # vLLM /metrics; skipped when the server has none

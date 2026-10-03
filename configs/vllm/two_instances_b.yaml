@@ -1,0 +1,10 @@
+# Two engines on one GPU, instance b of 2 (start both with scripts/vllm_serve_two.sh). Hypothesis:
+# the ~78 req/s ceiling is one EngineCore saturating one CPU core while the GPU idles 12-25%; a
+# second engine on a second core should raise it. Tuned values, with half the GPU memory each and a
+# smaller per-step token budget so two engines' activations fit (A2: this knob did not matter).
+model: king17pvp/qwen3-asr-1.7b-malaysian
+port: 8001
+gpu_memory_utilization: 0.45
+max_num_seqs: 128
+max_num_batched_tokens: 8192
+max_model_len: 4096
