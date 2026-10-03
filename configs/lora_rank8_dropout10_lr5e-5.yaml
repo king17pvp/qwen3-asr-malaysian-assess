@@ -1,0 +1,43 @@
+# Decoder-only LoRA fine-tuning of Qwen3-ASR-1.7B (audio encoder frozen).
+model_id: Qwen/Qwen3-ASR-1.7B-hf
+train_manifest: data/manifests/train.jsonl
+dev_manifest: data/manifests/dev.jsonl
+output_dir: checkpoints/lora
+merged_dir: checkpoints/merged
+results_dir: results/train
+merge_results_dir: results/merge
+push_results_dir: results/push
+sample_rate: 16000
+# Training attention only; it does not change the learned weights. Eager vs SDPA stays an
+# inference-side measurement (configs/engines/*.yaml).
+attn_implementation: sdpa
+smoke_clips: 3
+seed: 42
+
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+  # Matched only under model.language_model (training/lora.py): the audio encoder has its own
+  # q_proj/k_proj/v_proj, which stay frozen.
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+optim:
+  learning_rate: 5.0e-5
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  per_device_batch_size: 8
+  gradient_accumulation_steps: 2   # effective batch 16
+  num_epochs: 5
+  bf16: true
+  gradient_checkpointing: true
+  eval_strategy: epoch
+  metric_for_best_model: eval_loss   # on dev; best checkpoint kept at the end of training
+  logging_steps: 5
+  save_total_limit: 2
+  dataloader_num_workers: 2
+
+smoke:
+  train_clips: 8
+  dev_clips: 4
+  max_steps: 2

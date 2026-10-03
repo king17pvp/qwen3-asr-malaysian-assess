@@ -1,5 +1,5 @@
-# Journey row "FP8": tuned + FP8 weights and KV cache. On Ampere (RTX 3090) FP8 weights are
-# weight-only (W8A16): no faster matmuls. Hypothesis: more KV capacity; helps only if KV was the limit.
+# Journey row "FP8", weights half (isolation run): tuned + FP8 weights, bf16 KV cache. Showed that the
+# FP8 weights alone cause the repetition loop on one eval clip (reports/inference.md §3.7).
 model: king17pvp/qwen3-asr-1.7b-malaysian
 port: 8000
 gpu_memory_utilization: 0.92
@@ -7,6 +7,5 @@ max_num_seqs: 128
 max_num_batched_tokens: 16384
 max_model_len: 4096
 quantization: fp8
-kv_cache_dtype: fp8
 # vLLM 0.30.0 picks the CUTLASS FP8 kernel on sm86 (it needs sm89+) and crashes at startup; force Marlin.
 extra_args: ["--linear-backend", "marlin"]

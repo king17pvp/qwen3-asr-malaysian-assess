@@ -2,7 +2,26 @@
 
 Fine-tune Qwen3-ASR-1.7B on Malaysian speech and optimise it for high-concurrency inference on one GPU (8nabler ML Engineer assessment).
 
-_Work in progress: this README will cover the uv quickstart, one command per result, and the hardware table._
+## Results
+
+| | |
+|---|---|
+| Fine-tuning (LoRA rank 16 on the decoder, 35 min of audio) | held-out WER **17.1% → 14.77%**, English control unchanged (1.7% → 1.70%) |
+| Max concurrent streams, P95 RTF ≤ 0.5 | **116** (vLLM 0.30.0, bf16, `configs/vllm/tuned.yaml`); Transformers baseline: 1 |
+| Max concurrent streams, P95 RTF ≤ 0.3 | **64** |
+| Throughput at the limit | ~440 audio-seconds per second, WER 14.6% under load |
+| Main bottleneck | one CPU core (vLLM's EngineCore), with the GPU at 75–88% |
+
+Reports: [fine-tuning](reports/finetuning.md) · [inference optimization](reports/inference.md) ·
+[final answers](reports/final_answers.md) · [baseline before fine-tuning](reports/ResultsBeforeFineTuning.md).
+Generated tables and plots: `results/plots/`. Fine-tuned model:
+`king17pvp/qwen3-asr-1.7b-malaysian` on the Hugging Face Hub (private).
+
+| Hardware | Used for |
+|---|---|
+| RTX 3090 24 GB + Intel i7-8700 (Vast.ai `C.53713864`) | all load tests, Part 2 offline baseline |
+| RTX 3090 24 GB + Xeon E5-2696 v3 (Vast.ai `C.53477159`) | LoRA training, merge, fine-tuned evals |
+| RTX 3090 24 GB + AMD Ryzen 7 5800X | pretrained-model evals (`reports/ResultsBeforeFineTuning.md`) |
 
 ## Data
 
@@ -152,11 +171,14 @@ vLLM notes:
 - Before any vLLM load test, check vLLM accuracy against HF on the same model:
   `uv run --extra http asr-assess eval --engine configs/engines/vllm_ft.yaml --manifest eval`
   vs `make eval-ft`. vLLM's transcription prompt leaves out the empty system turn that the HF
-  chat template (and training) always has. TODO(gpu): record the WER gap here; above 1 point,
-  switch the client to chat completions.
+  chat template (and training) always has. Measured: vLLM 14.71% vs HF 14.77% eval WER (control
+  1.70% in both), a 0.06-point gap, so the client keeps `/v1/audio/transcriptions`.
 - The GPU is an RTX 3090 (Ampere). There, `quantization: fp8` is weight-only (W8A16) and gives
-  no faster matmuls, so the FP8 row tests KV-cache capacity (`kv_cache_dtype: fp8`) rather than
-  compute.
+  no faster matmuls. vLLM 0.30 picks a CUTLASS FP8 kernel that needs sm89+ and crashes at startup,
+  so `fp8.yaml` forces Marlin (`--linear-backend marlin`). FP8 weights then send one eval clip into
+  a deterministic repetition loop; that single clip lifts eval WER to 18.78%, while the other 122
+  clips stay close to bf16 (14.67% vs 14.42%). FP8 KV cache alone (`fp8-kv.yaml`) has no loop
+  (14.53%) but adds no capacity. See `reports/inference.md` §3.7.
 
 ## Development
 

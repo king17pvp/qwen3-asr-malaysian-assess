@@ -35,11 +35,12 @@ async def test_timeout_is_timeout() -> None:
     assert (await transport(httpx.MockTransport(handle)).transcribe(b"x")).status == "timeout"
 
 
-async def test_connection_error_is_error() -> None:
+async def test_connection_error_names_the_exception() -> None:
     def handle(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("refused", request=request)
+        raise httpx.RemoteProtocolError("disconnected", request=request)
 
-    assert (await transport(httpx.MockTransport(handle)).transcribe(b"x")).status == "error"
+    status = (await transport(httpx.MockTransport(handle)).transcribe(b"x")).status
+    assert status == "error:RemoteProtocolError"
 
 
 @pytest.mark.parametrize(
@@ -47,7 +48,7 @@ async def test_connection_error_is_error() -> None:
 )
 async def test_bad_body_is_an_error_not_a_crash(response: httpx.Response) -> None:
     t = transport(httpx.MockTransport(lambda r: response))
-    assert (await t.transcribe(b"x")).status == "error"
+    assert (await t.transcribe(b"x")).status == "error:bad_body"
 
 
 async def test_metrics_returns_text_or_none() -> None:

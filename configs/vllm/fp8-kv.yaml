@@ -1,0 +1,9 @@
+# Journey row "FP8", KV-cache half: tuned + FP8 KV cache, bf16 weights. Hypothesis: twice the KV
+# capacity helps only if KV was the limit. FP8 weights (fp8.yaml) cause repetition loops on this model.
+model: king17pvp/qwen3-asr-1.7b-malaysian
+port: 8000
+gpu_memory_utilization: 0.92
+max_num_seqs: 128
+max_num_batched_tokens: 16384
+max_model_len: 4096
+kv_cache_dtype: fp8

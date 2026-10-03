@@ -294,7 +294,13 @@ def test_vllm_journey_steps_differ_from_tuned_only_in_their_change() -> None:
     tuned = load("tuned")
     changes: dict[str, dict[str, object]] = {
         "cpu_path": {"api_server_count": 2},
-        "fp8": {"quantization": "fp8", "kv_cache_dtype": "fp8"},
+        "fp8": {
+            "quantization": "fp8",
+            "kv_cache_dtype": "fp8",
+            "extra_args": ["--linear-backend", "marlin"],
+        },
+        "fp8-w": {"quantization": "fp8", "extra_args": ["--linear-backend", "marlin"]},
+        "fp8-kv": {"kv_cache_dtype": "fp8"},
         "eager": {"enforce_eager": True},
     }
     for name, change in changes.items():

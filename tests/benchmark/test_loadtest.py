@@ -3,15 +3,18 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from asr_assess.benchmark.load_stats import PoolClip
 from asr_assess.benchmark.loadtest import build_pool, run_loadtest
 from asr_assess.core.config import LoadTestConfig
+from asr_assess.core.transcription_api import encode_wav
 from tests.fakes import FakeTransport, fake_meta, write_clips
 
 AUDIO_S = 0.2
-CLIPS = [PoolClip(f"c{i}", AUDIO_S, "2-5", "a b", b"RIFF") for i in range(5)]
+WAV = encode_wav(np.zeros(3200, dtype=np.float32), 16000)
+CLIPS = [PoolClip(f"c{i}", AUDIO_S, "2-5", "a b", WAV) for i in range(5)]
 
 
 def cfg(tmp: Path, levels: list[int]) -> LoadTestConfig:
@@ -106,6 +109,19 @@ async def test_unready_server_fails_fast(tmp_path: Path) -> None:
             Down(lambda n: 0.0), CLIPS, cfg(tmp_path, [1]), "t", tmp_path / "r", fake_meta(), None
         )
     assert not (tmp_path / "r").exists()
+
+
+async def test_every_request_sends_unique_audio(tmp_path: Path) -> None:
+    sent: list[bytes] = []
+
+    def text(wav: bytes, n: int) -> str:
+        sent.append(wav)
+        return "a b"
+
+    fake = FakeTransport(latency=lambda n: 0.001, text=text)
+    await run_loadtest(fake, CLIPS, cfg(tmp_path, [1, 2]), "t", tmp_path / "r", fake_meta(), None)
+    assert len(sent) > 2 * len(CLIPS)  # every clip was sent more than once
+    assert len(set(sent)) == len(sent)
 
 
 def test_build_pool_encodes_wavs_with_references(tmp_path: Path) -> None:
