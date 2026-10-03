@@ -250,7 +250,13 @@ class LoadTestRun(StrictModel):
 
 @app.command()
 def loadtest(
-    url: Annotated[str, typer.Option(help="Server base URL, e.g. http://localhost:8000")],
+    url: Annotated[
+        str,
+        typer.Option(
+            help="Server base URL, e.g. http://localhost:8000; several, comma-separated, are "
+            "load-balanced by fewest requests in flight"
+        ),
+    ],
     label: Annotated[
         str, typer.Option(help="Journey row name; results go to <output_dir>/<label>")
     ],
@@ -312,10 +318,18 @@ async def _run_loadtest(
     clips: "list[PoolClip]",
     max_tokens: int,
 ) -> None:
-    from asr_assess.benchmark.client import OpenAITranscriptionTransport
+    from asr_assess.benchmark.client import (
+        LeastOutstandingTransport,
+        OpenAITranscriptionTransport,
+        Transport,
+    )
     from asr_assess.benchmark.loadtest import run_loadtest
 
-    transport = OpenAITranscriptionTransport(meta.url, cfg.request_timeout_s, max_tokens)
+    servers = [
+        OpenAITranscriptionTransport(u, cfg.request_timeout_s, max_tokens)
+        for u in split_urls(meta.url)
+    ]
+    transport: Transport = servers[0] if len(servers) == 1 else LeastOutstandingTransport(servers)
     try:
         with _gpu_monitor(cfg.gpu_sample_hz) as gpu:
             summary = await run_loadtest(transport, clips, cfg, profile, out_dir, meta, gpu)
@@ -325,9 +339,14 @@ async def _run_loadtest(
         log.info("Max sustainable at P95 RTF <= %s: %s", verdict.threshold, verdict.max_sustainable)
 
 
+def split_urls(url: str) -> list[str]:
+    """The server URLs in a comma-separated ``--url``."""
+    return [u.strip() for u in url.split(",") if u.strip()]
+
+
 @contextmanager
 def _gpu_monitor(hz: float) -> "Iterator[GpuMonitor | None]":
-    """NVML sampling of GPU 0, or None (with a warning) where NVML is unavailable."""
+    """NVML sampling of every visible GPU, or None (with a warning) where NVML is unavailable."""
     from asr_assess.benchmark.gpu_monitor import GpuMonitor, PynvmlReader
 
     try:

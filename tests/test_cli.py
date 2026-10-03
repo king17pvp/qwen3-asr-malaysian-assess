@@ -10,7 +10,7 @@ import click
 import pytest
 from typer.testing import CliRunner, Result
 
-from asr_assess.cli import app
+from asr_assess.cli import app, split_urls
 from asr_assess.core.manifest import write_manifest
 from tests.fakes import ScriptedEngine, write_clips
 
@@ -246,6 +246,11 @@ def test_loadtest_refuses_existing_label_before_loading_audio(
 
     monkeypatch.setattr("asr_assess.benchmark.loadtest.build_pool", boom)
     assert invoke_loadtest(config, "--dry-run").exit_code == 1
+
+
+def test_loadtest_url_list_is_split_on_commas() -> None:
+    assert split_urls("http://a:8000") == ["http://a:8000"]
+    assert split_urls(" http://a:8000 , http://a:8001,") == ["http://a:8000", "http://a:8001"]
 
 
 def test_serve_dry_run_loads_no_model() -> None:
