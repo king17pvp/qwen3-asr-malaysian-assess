@@ -4,7 +4,7 @@
 from **17.1% to 14.77%** (−2.3 points, −14% relative) and CER from 7.5% to 6.68%, with **no loss on
 the English control set** (1.7% → 1.70%). Training takes under 4 minutes and 14.1 GiB on one RTX
 3090. The merged checkpoint is on the Hugging Face Hub as `king17pvp/qwen3-asr-1.7b-malaysian`
-(private), loads in Transformers and in vLLM 0.30.0, and gives the same accuracy in both (14.77% vs
+(public), loads in Transformers and in vLLM 0.30.0, and gives the same accuracy in both (14.77% vs
 14.71%).
 
 All numbers come from `results/train/`, `results/merge/`, `results/push/`, `results/eval/` and
@@ -201,7 +201,7 @@ with the base model on disk:
 1. **Reload after merge** (`smoke.jsonl`): the saved checkpoint is reloaded from disk and transcribes
    3 dev clips, e.g. reference `kepada saya dan kita semua untuk tidak mudah` → `pada saya dan kita
    semua untuk tidak mudah`.
-2. **From the Hub:** pushed as `king17pvp/qwen3-asr-1.7b-malaysian` (private; weights commit
+2. **From the Hub:** pushed as `king17pvp/qwen3-asr-1.7b-malaysian` (public; weights commit
    `af986a8`), reloaded by Transformers from the Hub id and run on 3 eval clips
    (`results/eval/hub-smoke`, `configs/engines/hf_ft_hub.yaml`).
 3. **In vLLM 0.30.0:** `vllm serve king17pvp/qwen3-asr-1.7b-malaysian` loads it unchanged. Offline
