@@ -152,11 +152,13 @@ vLLM notes:
 - Before any vLLM load test, check vLLM accuracy against HF on the same model:
   `uv run --extra http asr-assess eval --engine configs/engines/vllm_ft.yaml --manifest eval`
   vs `make eval-ft`. vLLM's transcription prompt leaves out the empty system turn that the HF
-  chat template (and training) always has. TODO(gpu): record the WER gap here; above 1 point,
-  switch the client to chat completions.
+  chat template (and training) always has. Measured: vLLM 14.71% vs HF 14.77% eval WER (control
+  1.70% in both), a 0.06-point gap, so the client keeps `/v1/audio/transcriptions`.
 - The GPU is an RTX 3090 (Ampere). There, `quantization: fp8` is weight-only (W8A16) and gives
-  no faster matmuls, so the FP8 row tests KV-cache capacity (`kv_cache_dtype: fp8`) rather than
-  compute.
+  no faster matmuls. vLLM 0.30 picks a CUTLASS FP8 kernel that needs sm89+ and crashes at startup,
+  so `fp8.yaml` forces Marlin (`--linear-backend marlin`). FP8 weights then cause a deterministic
+  repetition loop on one eval clip (eval WER 18.78%); FP8 KV cache alone (`fp8-kv.yaml`) keeps
+  accuracy (14.53%) but adds no capacity. See `reports/inference.md` §3.7.
 
 ## Development
 
