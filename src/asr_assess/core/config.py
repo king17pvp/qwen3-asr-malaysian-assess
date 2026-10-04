@@ -262,7 +262,11 @@ class AudioPoolSettings(StrictModel):
 
 
 class LoadProfile(StrictModel):
-    """How much of the protocol a run gets: levels, repeats, window lengths, bisection."""
+    """How much of the protocol a run gets: levels, repeats, window lengths, bisection, and how
+    clients behave. ``closed``: a stream sends its next utterance as soon as the last transcript
+    returns. ``open``: a session (a live speaker) sends each utterance once it has finished saying
+    it, ``pause_s`` after the previous one, and never waits for transcripts.
+    """
 
     concurrency_levels: list[PositiveInt] = Field(min_length=1)
     repeats: PositiveInt
@@ -271,6 +275,8 @@ class LoadProfile(StrictModel):
     bisect: bool
     bisect_max_steps: int = Field(ge=0)
     stop_after_failures: PositiveInt
+    mode: Literal["closed", "open"] = "closed"
+    pause_s: float = Field(default=0.0, ge=0.0)
 
     @model_validator(mode="after")
     def _levels_start_at_one_and_ascend(self) -> Self:
@@ -281,9 +287,15 @@ class LoadProfile(StrictModel):
             raise ValueError("concurrency_levels must be strictly ascending")
         return self
 
+    @model_validator(mode="after")
+    def _pause_only_in_open_loop(self) -> Self:
+        if self.mode == "closed" and self.pause_s != 0.0:
+            raise ValueError("pause_s must be 0 when mode is closed (closed streams never pause)")
+        return self
+
 
 class LoadTestConfig(StrictModel):
-    """configs/loadtest.yaml: closed-loop N-stream load test with named profiles."""
+    """configs/loadtest.yaml: closed- or open-loop load test with named profiles."""
 
     profiles: dict[str, LoadProfile] = Field(min_length=1)
     request_timeout_s: PositiveFloat
