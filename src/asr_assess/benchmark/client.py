@@ -74,13 +74,20 @@ class OpenAITranscriptionTransport:
         )
         self._fields = form_fields(model, max_tokens)
         self._poll_s = poll_s
+        self._timeout_s = timeout_s
 
     async def transcribe(self, wav: bytes) -> TransportResult:
-        """Send one WAV; timeouts, HTTP errors and unusable bodies become statuses."""
+        """Send one WAV; timeouts, HTTP errors and unusable bodies become statuses.
+
+        ``timeout_s`` is a deadline for the whole request: httpx's own timeout applies to each
+        network operation separately, so a slow request could otherwise run far past it.
+        """
         files = {FILE_FIELD: ("clip.wav", wav, "audio/wav")}
         try:
-            response = await self._client.post(ENDPOINT, data=self._fields, files=files)
-        except self._httpx.TimeoutException:
+            response = await asyncio.wait_for(
+                self._client.post(ENDPOINT, data=self._fields, files=files), self._timeout_s
+            )
+        except (TimeoutError, self._httpx.TimeoutException):
             return TransportResult("timeout")
         except self._httpx.HTTPError as e:
             return TransportResult(f"error:{type(e).__name__}")
@@ -148,3 +155,18 @@ class LeastOutstandingTransport:
     async def aclose(self) -> None:
         """Close every server's client."""
         await asyncio.gather(*(s.aclose() for s in self._servers))
+
+
+def split_urls(url: str) -> list[str]:
+    """The server URLs in a comma-separated ``--url``."""
+    return [u.strip() for u in url.split(",") if u.strip()]
+
+
+def make_transport(url: str, timeout_s: float, max_tokens: int | None) -> Transport:
+    """One server, or several (comma-separated) behind a least-outstanding balancer.
+
+    A module-level function, so ``functools.partial(make_transport, ...)`` can be sent to worker
+    processes, which each build their own client.
+    """
+    servers = [OpenAITranscriptionTransport(u, timeout_s, max_tokens) for u in split_urls(url)]
+    return servers[0] if len(servers) == 1 else LeastOutstandingTransport(servers)

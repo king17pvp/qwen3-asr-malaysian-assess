@@ -1,7 +1,7 @@
 """Schema of load-test result files: written by the benchmark, read by reporting."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from asr_assess.core.config import StrictModel
 
@@ -49,6 +49,13 @@ class LevelResult(StrictModel):
     cer: float | None
     gpu: GpuWindow | None
     vllm: dict[str, GaugeStats] | None
+    # open loop: how late the client sent requests after their scheduled time (event-loop lag,
+    # which RTF does not include); None for closed loop
+    client_lag_p95_s: float | None = None
+    client_lag_max_s: float | None = None
+    # seconds spent waiting for the server to finish earlier levels' requests before this level
+    # (summed over repeats); None when the server has no /metrics
+    drain_s: float | None = None
 
 
 class Verdict(StrictModel):
@@ -63,6 +70,9 @@ class LoadRunSummary(StrictModel):
 
     label: str
     profile: str
+    mode: Literal["closed", "open"] = "closed"  # client model of the profile (LoadProfile.mode)
+    pause_s: float = 0.0  # open loop: pause between a speaker's utterances
+    client_workers: int = 1  # load-test client processes the clients were spread over
     url: str
     server_config: str | None  # the server YAML's text, as run
     record: dict[str, Any]

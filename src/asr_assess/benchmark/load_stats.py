@@ -1,4 +1,4 @@
-"""Pure load-test maths: stream schedules, the measurement window, per-level stats, verdicts."""
+"""Pure load-test maths: stream and speaker schedules, the window, per-level stats, verdicts."""
 
 import random
 from collections.abc import Mapping, Sequence
@@ -32,7 +32,10 @@ class PoolClip:
 
 @dataclass(frozen=True)
 class RequestRecord:
-    """One request as the client saw it; RTF = (finished - sent) / audio_s."""
+    """One request as the client saw it; RTF = (finished - sent) / audio_s.
+
+    ``due``: open loop only, when the speaker finished the utterance (the scheduled send time).
+    """
 
     id: str
     stream: int
@@ -44,11 +47,44 @@ class RequestRecord:
     finished: float
     status: str
     text: str
+    due: float | None = None
 
 
 def stream_order(n_clips: int, stream: int, seed: int) -> list[int]:
     """The seeded order in which ``stream`` walks the pool (a permutation, cycled)."""
     return random.Random(seed + stream).sample(range(n_clips), n_clips)
+
+
+def session_phase(first_audio_s: float, stream: int, seed: int) -> float:
+    """When ``stream``'s first utterance is sent, in seconds after the level starts.
+
+    Each live speaker is caught a uniform-random way through its first utterance, so N sessions
+    send at a steady rate from the start instead of all at once one clip later.
+    """
+    return random.Random(f"{seed}:{stream}:phase").uniform(0.0, first_audio_s)
+
+
+def open_schedule(
+    audio_s: Sequence[float],
+    order: Sequence[int],
+    first_send: float,
+    pause_s: float,
+    stop_at: float,
+) -> list[tuple[float, int]]:
+    """One live speaker's ``(send time, clip index)`` for every send before ``stop_at``.
+
+    After each send the speaker pauses ``pause_s``, then speaks the next clip of ``order``
+    (cycled) and sends it as soon as it has been said: it never waits for a transcript.
+    """
+    if pause_s <= 0.0 and min(audio_s[i] for i in order) <= 0.0:
+        raise ValueError("a zero-length clip with no pause would schedule sends forever")
+    schedule: list[tuple[float, int]] = []
+    at, k = first_send, 0
+    while at < stop_at:
+        schedule.append((at, order[k % len(order)]))
+        k += 1
+        at += pause_s + audio_s[order[k % len(order)]]
+    return schedule
 
 
 def in_window(records: Sequence[RequestRecord], start: float, end: float) -> list[RequestRecord]:
@@ -70,6 +106,8 @@ def summarize_level(
     n_timeout = sum(r.status == "timeout" for r in records)
     rates = throughput(sum(r.audio_s for r in ok), len(ok), window_s * repeats)
     stats = summarize_rtf([rtf(r.finished - r.sent, r.audio_s) for r in ok]) if ok else None
+    lags = [r.sent - r.due for r in records if r.due is not None]
+    lag = summarize_rtf(lags) if lags else None
     return LevelResult(
         level=level,
         repeats=repeats,
@@ -84,16 +122,27 @@ def summarize_level(
         cer=_error_rate(ok, references, "char"),
         gpu=gpu,
         vllm=vllm,
+        client_lag_p95_s=lag.p95 if lag else None,
+        client_lag_max_s=lag.max if lag else None,
     )
 
 
 def is_sustainable(
-    result: LevelResult, threshold: float, reference_wer: float | None, max_wer_delta_points: float
+    result: LevelResult,
+    threshold: float,
+    reference_wer: float | None,
+    max_wer_delta_points: float,
+    max_client_lag_s: float | None = None,
 ) -> bool:
-    """P95 RTF within ``threshold``, no failed request, and WER within the allowed delta."""
+    """P95 RTF within ``threshold``, no failed request, WER within the allowed delta, and (open
+    loop) the client on its timetable: a lagging client offered less load than the level claims.
+    """
     if result.rtf is None or result.rtf.p95 > threshold:
         return False
     if result.n_timeout or result.n_error:
+        return False
+    lag = result.client_lag_p95_s
+    if max_client_lag_s is not None and lag is not None and lag > max_client_lag_s:
         return False
     if reference_wer is None or result.wer is None:
         return True

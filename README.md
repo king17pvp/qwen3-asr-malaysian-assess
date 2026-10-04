@@ -163,6 +163,26 @@ intermediate rows. Both stop one level after the first failing level. Results go
 overwritten. `levels.jsonl` includes GPU utilization and VRAM (NVML at 10 Hz) and, for vLLM,
 the running/waiting/KV-cache gauges scraped from `/metrics`.
 
+**Open loop (live speakers).** The closed-loop client never has to speak: at the final config's
+limit each stream sends ~3.8 s of audio per second, so "streams" undercount live users. The
+`open_live` profile models people talking instead: each session sends an utterance once it has
+finished saying it, pauses 1 s, and never waits for transcripts (several of its requests can be
+in flight). A level is that many speakers; RTF, the window and the pass rules are the same.
+Requests are still whole utterances (VAD-segmented in production), not chunked streaming.
+`make report` keeps open runs out of `journey.md` and writes `p95_rtf_open.png` /
+`throughput_open.png` for them.
+
+One client process cannot play hundreds of open-loop speakers: its event loop falls behind its own
+timetable (visible as `client_lag_*` in `levels.jsonl`) and the load generator, not the server,
+sets the limit. `WORKERS=N` spreads each level's clients over N processes; the parent keeps the
+sweep, GPU and metrics sampling and the results. Requests are cut at `request_timeout_s` in total.
+
+```bash
+make serve-vllm CFG=configs/vllm/tuned.yaml
+ulimit -n 65536
+make loadtest URL=http://localhost:8000 LABEL=vllm-open-live-w4 PROFILE=open_live WORKERS=4 SERVER_CFG=configs/vllm/tuned.yaml
+```
+
 vLLM notes:
 
 - `bash scripts/vllm_serve.sh <yaml>` turns the YAML into `vllm serve` flags

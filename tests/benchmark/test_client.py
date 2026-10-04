@@ -41,6 +41,20 @@ async def test_timeout_is_timeout() -> None:
     assert (await transport(httpx.MockTransport(handle)).transcribe(b"x")).status == "timeout"
 
 
+async def test_timeout_is_a_total_deadline_not_per_operation() -> None:
+    # httpx timeouts apply to each network operation; a server that keeps the request busy
+    # longer than timeout_s in total must still come back as a timeout
+    async def handle(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.5)
+        return httpx.Response(200, json={"text": "late"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle), base_url="http://s")
+    t = OpenAITranscriptionTransport("http://s", timeout_s=0.1, max_tokens=256, client=client)
+    started = asyncio.get_running_loop().time()
+    assert (await t.transcribe(b"RIFF")).status == "timeout"
+    assert asyncio.get_running_loop().time() - started < 0.4
+
+
 async def test_connection_error_names_the_exception() -> None:
     def handle(request: httpx.Request) -> httpx.Response:
         raise httpx.RemoteProtocolError("disconnected", request=request)

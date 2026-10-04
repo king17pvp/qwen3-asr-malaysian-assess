@@ -43,9 +43,9 @@ def journey_table(runs: Sequence[LoadRunSummary]) -> str:
 
 
 def concurrency_table(run: LoadRunSummary) -> str:
-    """One row per tested concurrency level of one run, in level order."""
+    """One row per tested level of one run (streams, or live speakers for open loop)."""
     header = [
-        "Streams",
+        "Live speakers" if run.mode == "open" else "Streams",
         "Avg RTF",
         "P50",
         "P95",

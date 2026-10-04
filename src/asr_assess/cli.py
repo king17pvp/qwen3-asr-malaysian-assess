@@ -246,6 +246,7 @@ class LoadTestRun(StrictModel):
     url: str
     label: str
     max_tokens: int
+    workers: int = 1
 
 
 @app.command()
@@ -260,7 +261,9 @@ def loadtest(
     label: Annotated[
         str, typer.Option(help="Journey row name; results go to <output_dir>/<label>")
     ],
-    profile: Annotated[str, typer.Option(help="Profile in the config: full or quick")] = "quick",
+    profile: Annotated[
+        str, typer.Option(help="Profile in the config, e.g. full, quick or open_live")
+    ] = "quick",
     config: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path(
         "configs/loadtest.yaml"
     ),
@@ -269,11 +272,19 @@ def loadtest(
         typer.Option(exists=True, dir_okay=False, help="Server YAML, copied into the summary"),
     ] = None,
     max_tokens: Annotated[int, typer.Option(min=1, help="Decode budget sent per request")] = 256,
+    workers: Annotated[
+        int,
+        typer.Option(
+            min=1,
+            help="Client processes to spread the clients over; open loop at hundreds of "
+            "speakers needs several, or one event loop falls behind its own timetable",
+        ),
+    ] = 1,
     dry_run: Annotated[
         bool, typer.Option(help="Build the audio pool and log the schedule; send nothing.")
     ] = False,
 ) -> None:
-    """Closed-loop N-stream load test against an HF or vLLM server (needs the `http` extra)."""
+    """Closed- or open-loop load test against an HF or vLLM server (needs the `http` extra)."""
     from asr_assess.benchmark import loadtest as lt
     from asr_assess.benchmark.env_info import collect_env_info
 
@@ -291,15 +302,24 @@ def loadtest(
         len(chosen.concurrency_levels) * chosen.repeats * (chosen.warmup_s + chosen.steady_state_s)
     )
     log.info(
-        "%d clips; levels %s x %d repeats; at most ~%.0f min before bisection",
+        "%d clips; levels %s x %d repeats; at most ~%.0f min before bisection; %d client "
+        "process(es)",
         len(clips),
         chosen.concurrency_levels,
         chosen.repeats,
         worst_s / 60,
+        workers,
     )
     if dry_run:
         return
-    run = LoadTestRun(loadtest=cfg, profile=profile, url=url, label=label, max_tokens=max_tokens)
+    run = LoadTestRun(
+        loadtest=cfg,
+        profile=profile,
+        url=url,
+        label=label,
+        max_tokens=max_tokens,
+        workers=workers,
+    )
     meta = lt.RunMeta(
         label=label,
         url=url,
@@ -307,7 +327,7 @@ def loadtest(
         record=collect_run_record(run, packages=LOADTEST_PACKAGES, repo=Path.cwd()),
         env=collect_env_info(LOADTEST_PACKAGES),
     )
-    asyncio.run(_run_loadtest(cfg, profile, out_dir, meta, clips, max_tokens))
+    asyncio.run(_run_loadtest(cfg, profile, out_dir, meta, clips, max_tokens, workers))
 
 
 async def _run_loadtest(
@@ -317,31 +337,28 @@ async def _run_loadtest(
     meta: "RunMeta",
     clips: "list[PoolClip]",
     max_tokens: int,
+    workers: int,
 ) -> None:
-    from asr_assess.benchmark.client import (
-        LeastOutstandingTransport,
-        OpenAITranscriptionTransport,
-        Transport,
-    )
-    from asr_assess.benchmark.loadtest import run_loadtest
+    from functools import partial
 
-    servers = [
-        OpenAITranscriptionTransport(u, cfg.request_timeout_s, max_tokens)
-        for u in split_urls(meta.url)
-    ]
-    transport: Transport = servers[0] if len(servers) == 1 else LeastOutstandingTransport(servers)
+    from asr_assess.benchmark.client import make_transport
+    from asr_assess.benchmark.loadtest import run_loadtest
+    from asr_assess.benchmark.workers import WorkerPool
+
+    factory = partial(make_transport, meta.url, cfg.request_timeout_s, max_tokens)
+    transport = factory()  # readiness, drain and metrics; and the clients when workers == 1
+    pool = WorkerPool(workers, clips, factory) if workers > 1 else None
     try:
         with _gpu_monitor(cfg.gpu_sample_hz) as gpu:
-            summary = await run_loadtest(transport, clips, cfg, profile, out_dir, meta, gpu)
+            summary = await run_loadtest(
+                transport, clips, cfg, profile, out_dir, meta, gpu, workers=pool
+            )
     finally:
         await transport.aclose()
+        if pool is not None:
+            pool.close()
     for verdict in summary.verdicts:
         log.info("Max sustainable at P95 RTF <= %s: %s", verdict.threshold, verdict.max_sustainable)
-
-
-def split_urls(url: str) -> list[str]:
-    """The server URLs in a comma-separated ``--url``."""
-    return [u.strip() for u in url.split(",") if u.strip()]
 
 
 @contextmanager
@@ -381,12 +398,20 @@ def report(
         log.error("No */summary.json under %s", results)
         raise typer.Exit(code=1)
     out.mkdir(parents=True, exist_ok=True)  # derived files: regenerated on every run
-    (out / "journey.md").write_text(journey_table(runs), encoding="utf-8")
+    closed = [run for run in runs if run.mode == "closed"]
+    live = [run for run in runs if run.mode == "open"]
+    # the journey compares configurations under the same closed-loop clients; open runs count
+    # live speakers, a different axis, so they get their own plots
+    (out / "journey.md").write_text(journey_table(closed), encoding="utf-8")
     for run in runs:
         (out / f"concurrency_{run.label}.md").write_text(concurrency_table(run), "utf-8")
     thresholds = [v.threshold for v in runs[0].verdicts]
-    plot_p95(runs, out / "p95_rtf.png", thresholds)
-    plot_throughput(runs, out / "throughput.png")
+    if closed:
+        plot_p95(closed, out / "p95_rtf.png", thresholds)
+        plot_throughput(closed, out / "throughput.png")
+    if live:
+        plot_p95(live, out / "p95_rtf_open.png", thresholds, xlabel="Live speakers")
+        plot_throughput(live, out / "throughput_open.png", xlabel="Live speakers")
     log.info("Wrote tables and plots for %d runs to %s", len(runs), out)
 
 

@@ -1,4 +1,6 @@
-# Closed-loop load test: each stream sends one utterance, waits, then sends the next.
+# Closed-loop load test (default): each stream sends one utterance, waits, then sends the next.
+# Open-loop profiles (mode: open): each session is a live speaker that sends an utterance once it
+# has finished saying it, never waiting for transcripts; a level is that many speakers.
 # Per-request RTF = end-to-end latency (including queueing) / audio duration.
 # `full` for Baseline and the final config; `quick` for intermediate journey rows.
 profiles:
@@ -35,6 +37,18 @@ profiles:
     bisect: true
     bisect_max_steps: 5
     stop_after_failures: 1
+  # Live speakers on the final config: an utterance is sent when it has been spoken, then a 1 s
+  # pause. ~0.86 audio-s/s per speaker with ~6 s clips, so the limit is a few hundred speakers.
+  open_live:
+    mode: open
+    pause_s: 1.0
+    concurrency_levels: [1, 64, 128, 256, 384, 512, 768]
+    repeats: 1
+    warmup_s: 30          # >= the longest clip, so every speaker is sending before the window
+    steady_state_s: 120
+    bisect: true
+    bisect_max_steps: 5
+    stop_after_failures: 1
 request_timeout_s: 60
 gpu_sample_hz: 10
 metrics_scrape_hz: 1      # vLLM /metrics; skipped when the server has none
@@ -47,5 +61,6 @@ thresholds:
   p95_rtf_max: 0.5         # "max sustainable" level
   p95_rtf_strong: 0.3      # also reported
   max_wer_delta_points: 1.0  # WER under load within 1 point of single-stream
+  max_client_lag_s: 0.5    # open loop: p95 send lag above this = the client, not the server, fell behind
 
 output_dir: results/loadtest

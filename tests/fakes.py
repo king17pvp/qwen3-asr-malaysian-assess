@@ -1,6 +1,7 @@
 """Test doubles shared across test packages: engines, a clock, a server transport, WAV fixtures."""
 
 import asyncio
+import os
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -88,6 +89,42 @@ class FakeTransport:
 
     async def aclose(self) -> None:
         return None
+
+
+def _quick(n: int) -> float:
+    return 0.001
+
+
+def _words(wav: bytes, n: int) -> str:
+    return "a b"
+
+
+def _pid(wav: bytes, n: int) -> str:
+    return str(os.getpid())
+
+
+class QuickServer(FakeTransport):
+    """A fast fake answering "a b"; picklable by reference, so worker processes can build it."""
+
+    def __init__(self) -> None:
+        super().__init__(latency=_quick, text=_words)
+
+
+class PidServer(FakeTransport):
+    """A fast fake answering with the id of the process that sent the request."""
+
+    def __init__(self) -> None:
+        super().__init__(latency=_quick, text=_pid)
+
+
+class IdServer(FakeTransport):
+    """A fast fake answering with its own identity, so tests can see which transport sent what."""
+
+    def __init__(self) -> None:
+        super().__init__(latency=_quick, text=self._me)
+
+    def _me(self, wav: bytes, n: int) -> str:
+        return f"{os.getpid()}:{id(self)}"
 
 
 def fake_meta(label: str = "t") -> RunMeta:

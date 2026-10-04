@@ -81,6 +81,19 @@ class TestShippedConfigs:
         assert quick.repeats == 1
         assert cfg.thresholds.p95_rtf_max == 0.5
 
+    def test_loadtest_yaml_caps_client_lag(self) -> None:
+        cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)
+        assert cfg.thresholds.max_client_lag_s == 0.5
+
+    def test_loadtest_yaml_has_the_open_live_profile(self) -> None:
+        cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)
+        live = cfg.profiles["open_live"]
+        assert (live.mode, live.pause_s) == ("open", 1.0)
+        assert live.concurrency_levels == [1, 64, 128, 256, 384, 512, 768]
+        assert (live.warmup_s, live.steady_state_s, live.repeats) == (30.0, 120.0, 1)
+        assert (live.bisect, live.bisect_max_steps) == (True, 5)
+        assert all(cfg.profiles[name].mode == "closed" for name in ("full", "quick"))
+
 
 class TestDataConfig:
     def load(self) -> dict[str, object]:
@@ -173,6 +186,22 @@ class TestLoadTestValidation:
     def test_levels_must_start_at_one(self) -> None:
         with pytest.raises(ValidationError, match="start at 1"):
             LoadProfile.model_validate(self.profile([2, 4]))
+
+    def test_profiles_default_to_closed_loop(self) -> None:
+        profile = LoadProfile.model_validate(self.profile([1, 2]))
+        assert (profile.mode, profile.pause_s) == ("closed", 0.0)
+
+    def test_pause_needs_open_loop(self) -> None:
+        with pytest.raises(ValidationError, match="pause_s must be 0"):
+            LoadProfile.model_validate({**self.profile([1, 2]), "pause_s": 1.0})
+
+    def test_pause_must_not_be_negative(self) -> None:
+        with pytest.raises(ValidationError, match="pause_s"):
+            LoadProfile.model_validate({**self.profile([1, 2]), "mode": "open", "pause_s": -1.0})
+
+    def test_unknown_mode_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="mode"):
+            LoadProfile.model_validate({**self.profile([1, 2]), "mode": "half-open"})
 
     def test_strong_threshold_must_not_exceed_max(self) -> None:
         cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig).model_dump()
