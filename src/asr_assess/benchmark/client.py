@@ -155,3 +155,18 @@ class LeastOutstandingTransport:
     async def aclose(self) -> None:
         """Close every server's client."""
         await asyncio.gather(*(s.aclose() for s in self._servers))
+
+
+def split_urls(url: str) -> list[str]:
+    """The server URLs in a comma-separated ``--url``."""
+    return [u.strip() for u in url.split(",") if u.strip()]
+
+
+def make_transport(url: str, timeout_s: float, max_tokens: int | None) -> Transport:
+    """One server, or several (comma-separated) behind a least-outstanding balancer.
+
+    A module-level function, so ``functools.partial(make_transport, ...)`` can be sent to worker
+    processes, which each build their own client.
+    """
+    servers = [OpenAITranscriptionTransport(u, timeout_s, max_tokens) for u in split_urls(url)]
+    return servers[0] if len(servers) == 1 else LeastOutstandingTransport(servers)

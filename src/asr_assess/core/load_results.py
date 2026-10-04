@@ -72,6 +72,7 @@ class LoadRunSummary(StrictModel):
     profile: str
     mode: Literal["closed", "open"] = "closed"  # client model of the profile (LoadProfile.mode)
     pause_s: float = 0.0  # open loop: pause between a speaker's utterances
+    client_workers: int = 1  # load-test client processes the clients were spread over
     url: str
     server_config: str | None  # the server YAML's text, as run
     record: dict[str, Any]

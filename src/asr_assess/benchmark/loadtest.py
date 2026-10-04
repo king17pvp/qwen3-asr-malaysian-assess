@@ -17,6 +17,7 @@ import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Protocol
 
 from asr_assess.benchmark.client import Transport
 from asr_assess.benchmark.env_info import EnvInfo
@@ -143,6 +144,64 @@ async def run_session(
     return list(await asyncio.gather(*tasks))
 
 
+@dataclass(frozen=True)
+class ClientPlan:
+    """One client of a level, decided up front so any process can run it: a closed-loop stream
+    walking ``order`` until ``stop_at``, or an open-loop speaker sending on ``schedule``."""
+
+    ids: tuple[int, int, int]  # (stream, level, repeat)
+    order: tuple[int, ...] = ()
+    stop_at: float = 0.0
+    schedule: tuple[tuple[float, int], ...] | None = None
+
+
+class ClientRunner(Protocol):
+    """Runs a level's client plans elsewhere (worker processes) and returns their records."""
+
+    size: int
+
+    async def run(self, plans: Sequence[ClientPlan]) -> list[RequestRecord]:
+        """Every plan's records; plans hold absolute ``time.monotonic`` times."""
+        ...
+
+
+def plan_level(
+    clips: Sequence[PoolClip],
+    level: int,
+    repeat: int,
+    profile: LoadProfile,
+    seed: int,
+    begin: float,
+    end: float,
+) -> list[ClientPlan]:
+    """The ``level`` clients of one repeat: what each sends, and when (open loop)."""
+    audio = [c.audio_s for c in clips]
+    plans = []
+    for s in range(level):
+        order = stream_order(len(clips), s, seed)
+        ids = (s, level, repeat)
+        if profile.mode == "open":
+            first = begin + session_phase(audio[order[0]], s, seed)
+            schedule = open_schedule(audio, order, first, profile.pause_s, end)
+            plans.append(ClientPlan(ids, schedule=tuple(schedule)))
+        else:
+            plans.append(ClientPlan(ids, order=tuple(order), stop_at=end))
+    return plans
+
+
+async def run_plans(
+    transport: Transport, clips: Sequence[PoolClip], plans: Sequence[ClientPlan], clock: Clock
+) -> list[RequestRecord]:
+    """Run client plans concurrently on this event loop."""
+    clients: list[Awaitable[list[RequestRecord]]] = [
+        run_stream(transport, clips, p.order, p.ids, p.stop_at, clock)
+        if p.schedule is None
+        else run_session(transport, clips, p.schedule, p.ids, clock)
+        for p in plans
+    ]
+    return [r for client in await asyncio.gather(*clients) for r in client]
+
+
 async def run_level(
     transport: Transport,
     clips: Sequence[PoolClip],
@@ -151,23 +210,21 @@ async def run_level(
     profile: LoadProfile,
     seed: int,
     clock: Clock,
+    workers: ClientRunner | None = None,
 ) -> tuple[list[RequestRecord], Window]:
-    """``level`` clients through warm-up and steady state; the steady-state requests and window."""
+    """``level`` clients through warm-up and steady state; the steady-state requests and window.
+
+    With ``workers``, the clients run in worker processes (which use ``time.monotonic``, so
+    ``clock`` must be it); otherwise on this event loop through ``transport``.
+    """
     begin = clock()
     start = begin + profile.warmup_s
     end = start + profile.steady_state_s
-    audio = [c.audio_s for c in clips]
-    clients: list[Awaitable[list[RequestRecord]]] = []
-    for s in range(level):
-        order = stream_order(len(clips), s, seed)
-        ids = (s, level, repeat)
-        if profile.mode == "open":
-            first = begin + session_phase(audio[order[0]], s, seed)
-            schedule = open_schedule(audio, order, first, profile.pause_s, end)
-            clients.append(run_session(transport, clips, schedule, ids, clock))
-        else:
-            clients.append(run_stream(transport, clips, order, ids, end, clock))
-    records = [r for client in await asyncio.gather(*clients) for r in client]
+    plans = plan_level(clips, level, repeat, profile, seed, begin, end)
+    if workers is not None:
+        records = await workers.run(plans)
+    else:
+        records = await run_plans(transport, clips, plans, clock)
     return in_window(records, start, end), (start, end)
 
 
@@ -182,6 +239,7 @@ class _Run:
     out_dir: Path
     gpu: GpuMonitor | None
     clock: Clock
+    workers: ClientRunner | None = None
     scrapes: list[Scrape] = field(default_factory=list)
     results: dict[int, LevelResult] = field(default_factory=dict)
 
@@ -207,6 +265,7 @@ class _Run:
                 self.profile,
                 self.cfg.audio_pool.seed,
                 self.clock,
+                self.workers,
             )
             records += got
             windows.append(window)
@@ -265,14 +324,19 @@ async def run_loadtest(
     meta: RunMeta,
     gpu: GpuMonitor | None,
     clock: Clock = time.monotonic,
+    workers: ClientRunner | None = None,
 ) -> LoadRunSummary:
-    """Sweep the profile's levels, bisect near the limit, and write the run's result files."""
+    """Sweep the profile's levels, bisect near the limit, and write the run's result files.
+
+    ``transport`` always serves readiness, drain and metrics; with ``workers`` the clients
+    themselves run in worker processes.
+    """
     if out_dir.exists():
         raise FileExistsError(f"{out_dir} exists; results are never overwritten")
     if not await transport.wait_ready(cfg.request_timeout_s):
         raise RuntimeError(f"Server not ready at {meta.url}")
     out_dir.mkdir(parents=True)
-    run = _Run(transport, clips, cfg, cfg.profiles[profile_name], out_dir, gpu, clock)
+    run = _Run(transport, clips, cfg, cfg.profiles[profile_name], out_dir, gpu, clock, workers)
     scraper = asyncio.create_task(_scrape(transport, 1.0 / cfg.metrics_scrape_hz, clock, run))
     try:
         await _sweep(run)
@@ -369,6 +433,7 @@ def _summary(run: _Run, profile_name: str, meta: RunMeta) -> LoadRunSummary:
         profile=profile_name,
         mode=run.profile.mode,
         pause_s=run.profile.pause_s,
+        client_workers=run.workers.size if run.workers else 1,
         url=meta.url,
         server_config=meta.server_config,
         record=meta.record.model_dump(mode="json"),
