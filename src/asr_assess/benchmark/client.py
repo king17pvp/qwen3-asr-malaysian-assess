@@ -74,13 +74,20 @@ class OpenAITranscriptionTransport:
         )
         self._fields = form_fields(model, max_tokens)
         self._poll_s = poll_s
+        self._timeout_s = timeout_s
 
     async def transcribe(self, wav: bytes) -> TransportResult:
-        """Send one WAV; timeouts, HTTP errors and unusable bodies become statuses."""
+        """Send one WAV; timeouts, HTTP errors and unusable bodies become statuses.
+
+        ``timeout_s`` is a deadline for the whole request: httpx's own timeout applies to each
+        network operation separately, so a slow request could otherwise run far past it.
+        """
         files = {FILE_FIELD: ("clip.wav", wav, "audio/wav")}
         try:
-            response = await self._client.post(ENDPOINT, data=self._fields, files=files)
-        except self._httpx.TimeoutException:
+            response = await asyncio.wait_for(
+                self._client.post(ENDPOINT, data=self._fields, files=files), self._timeout_s
+            )
+        except (TimeoutError, self._httpx.TimeoutException):
             return TransportResult("timeout")
         except self._httpx.HTTPError as e:
             return TransportResult(f"error:{type(e).__name__}")
