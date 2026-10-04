@@ -171,6 +171,16 @@ async def test_closed_run_summary_says_closed(tmp_path: Path) -> None:
     assert (out.mode, out.pause_s) == ("closed", 0.0)
 
 
+async def test_open_run_fails_a_level_the_client_could_not_keep_up_with(tmp_path: Path) -> None:
+    fake = FakeTransport(latency=lambda n: 0.001, text=lambda wav, n: "a b")
+    config = cfg(tmp_path, [1, 2], mode="open", bisect=False)
+    tight = config.model_copy(
+        update={"thresholds": config.thresholds.model_copy(update={"max_client_lag_s": 1e-9})}
+    )
+    out = await run_loadtest(fake, CLIPS, tight, "t", tmp_path / "r", fake_meta(), None)
+    assert verdicts(out.verdicts) == {0.5: None, 0.3: None}  # any lag at all is "too late" here
+
+
 class BusyServer(FakeTransport):
     """A fake vLLM that reports requests still running until ``idle_at`` (monotonic time)."""
 

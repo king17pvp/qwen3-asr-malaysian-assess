@@ -61,5 +61,6 @@ thresholds:
   p95_rtf_max: 0.5         # "max sustainable" level
   p95_rtf_strong: 0.3      # also reported
   max_wer_delta_points: 1.0  # WER under load within 1 point of single-stream
+  max_client_lag_s: 0.5    # open loop: p95 send lag above this = the client, not the server, fell behind
 
 output_dir: results/loadtest

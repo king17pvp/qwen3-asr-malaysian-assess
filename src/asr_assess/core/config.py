@@ -246,6 +246,9 @@ class LoadTestThresholds(StrictModel):
     p95_rtf_max: PositiveFloat
     p95_rtf_strong: PositiveFloat
     max_wer_delta_points: float = Field(ge=0.0)
+    # open loop: a level whose client sent its p95 request later than this after schedule never
+    # offered its load (the load generator fell behind), so it cannot pass
+    max_client_lag_s: PositiveFloat = 0.5
 
     @model_validator(mode="after")
     def _strong_within_max(self) -> Self:

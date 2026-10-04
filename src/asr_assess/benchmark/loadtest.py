@@ -290,6 +290,7 @@ class _Run:
             threshold,
             self.reference_wer(),
             self.cfg.thresholds.max_wer_delta_points,
+            self.cfg.thresholds.max_client_lag_s,
         )
 
     def reference_wer(self) -> float | None:

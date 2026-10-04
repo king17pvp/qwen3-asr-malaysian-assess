@@ -128,12 +128,21 @@ def summarize_level(
 
 
 def is_sustainable(
-    result: LevelResult, threshold: float, reference_wer: float | None, max_wer_delta_points: float
+    result: LevelResult,
+    threshold: float,
+    reference_wer: float | None,
+    max_wer_delta_points: float,
+    max_client_lag_s: float | None = None,
 ) -> bool:
-    """P95 RTF within ``threshold``, no failed request, and WER within the allowed delta."""
+    """P95 RTF within ``threshold``, no failed request, WER within the allowed delta, and (open
+    loop) the client on its timetable: a lagging client offered less load than the level claims.
+    """
     if result.rtf is None or result.rtf.p95 > threshold:
         return False
     if result.n_timeout or result.n_error:
+        return False
+    lag = result.client_lag_p95_s
+    if max_client_lag_s is not None and lag is not None and lag > max_client_lag_s:
         return False
     if reference_wer is None or result.wer is None:
         return True

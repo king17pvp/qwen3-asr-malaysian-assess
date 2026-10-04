@@ -81,6 +81,10 @@ class TestShippedConfigs:
         assert quick.repeats == 1
         assert cfg.thresholds.p95_rtf_max == 0.5
 
+    def test_loadtest_yaml_caps_client_lag(self) -> None:
+        cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)
+        assert cfg.thresholds.max_client_lag_s == 0.5
+
     def test_loadtest_yaml_has_the_open_live_profile(self) -> None:
         cfg = load_config(CONFIGS / "loadtest.yaml", LoadTestConfig)
         live = cfg.profiles["open_live"]

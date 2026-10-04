@@ -165,3 +165,14 @@ def test_summarize_level_reports_open_loop_client_lag() -> None:
 def test_closed_loop_records_have_no_client_lag() -> None:
     res = summarize_level(1, [rec(0, 0.2)], REFS, 2.0, 1, None, None)
     assert (res.client_lag_p95_s, res.client_lag_max_s) == (None, None)
+
+
+def test_a_level_the_client_fell_behind_on_is_not_sustainable() -> None:
+    # the speakers sent late, so the level never offered its load: it must not pass
+    lagging = summarize_level(1, [rec(0, 0.2)], REFS, 2.0, 1, None, None).model_copy(
+        update={"client_lag_p95_s": 0.8}
+    )
+    assert not is_sustainable(lagging, 0.5, 0.0, 1.0, max_client_lag_s=0.5)
+    on_time = lagging.model_copy(update={"client_lag_p95_s": 0.01})
+    assert is_sustainable(on_time, 0.5, 0.0, 1.0, max_client_lag_s=0.5)
+
