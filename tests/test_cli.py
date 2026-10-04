@@ -10,7 +10,8 @@ import click
 import pytest
 from typer.testing import CliRunner, Result
 
-from asr_assess.cli import app, split_urls
+from asr_assess.benchmark.client import split_urls
+from asr_assess.cli import app
 from asr_assess.core.manifest import write_manifest
 from tests.fakes import ScriptedEngine, write_clips
 
@@ -246,6 +247,16 @@ def test_loadtest_refuses_existing_label_before_loading_audio(
 
     monkeypatch.setattr("asr_assess.benchmark.loadtest.build_pool", boom)
     assert invoke_loadtest(config, "--dry-run").exit_code == 1
+
+
+def test_loadtest_needs_at_least_one_worker(tmp_path: Path) -> None:
+    result = invoke_loadtest(loadtest_config(tmp_path), "--workers", "0", "--dry-run")
+    assert result.exit_code != 0
+
+
+def test_loadtest_dry_run_accepts_workers(tmp_path: Path) -> None:
+    result = invoke_loadtest(loadtest_config(tmp_path), "--workers", "4", "--dry-run")
+    assert result.exit_code == 0, result.output
 
 
 def test_loadtest_url_list_is_split_on_commas() -> None:

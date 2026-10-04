@@ -172,9 +172,15 @@ Requests are still whole utterances (VAD-segmented in production), not chunked s
 `make report` keeps open runs out of `journey.md` and writes `p95_rtf_open.png` /
 `throughput_open.png` for them.
 
+One client process cannot play hundreds of open-loop speakers: its event loop falls behind its own
+timetable (visible as `client_lag_*` in `levels.jsonl`) and the load generator, not the server,
+sets the limit. `WORKERS=N` spreads each level's clients over N processes; the parent keeps the
+sweep, GPU and metrics sampling and the results. Requests are cut at `request_timeout_s` in total.
+
 ```bash
 make serve-vllm CFG=configs/vllm/tuned.yaml
-make loadtest URL=http://localhost:8000 LABEL=vllm-open-live PROFILE=open_live SERVER_CFG=configs/vllm/tuned.yaml
+ulimit -n 65536
+make loadtest URL=http://localhost:8000 LABEL=vllm-open-live-w4 PROFILE=open_live WORKERS=4 SERVER_CFG=configs/vllm/tuned.yaml
 ```
 
 vLLM notes:

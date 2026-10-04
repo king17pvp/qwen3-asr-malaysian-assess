@@ -246,6 +246,7 @@ class LoadTestRun(StrictModel):
     url: str
     label: str
     max_tokens: int
+    workers: int = 1
 
 
 @app.command()
@@ -271,6 +272,14 @@ def loadtest(
         typer.Option(exists=True, dir_okay=False, help="Server YAML, copied into the summary"),
     ] = None,
     max_tokens: Annotated[int, typer.Option(min=1, help="Decode budget sent per request")] = 256,
+    workers: Annotated[
+        int,
+        typer.Option(
+            min=1,
+            help="Client processes to spread the clients over; open loop at hundreds of "
+            "speakers needs several, or one event loop falls behind its own timetable",
+        ),
+    ] = 1,
     dry_run: Annotated[
         bool, typer.Option(help="Build the audio pool and log the schedule; send nothing.")
     ] = False,
@@ -293,15 +302,24 @@ def loadtest(
         len(chosen.concurrency_levels) * chosen.repeats * (chosen.warmup_s + chosen.steady_state_s)
     )
     log.info(
-        "%d clips; levels %s x %d repeats; at most ~%.0f min before bisection",
+        "%d clips; levels %s x %d repeats; at most ~%.0f min before bisection; %d client "
+        "process(es)",
         len(clips),
         chosen.concurrency_levels,
         chosen.repeats,
         worst_s / 60,
+        workers,
     )
     if dry_run:
         return
-    run = LoadTestRun(loadtest=cfg, profile=profile, url=url, label=label, max_tokens=max_tokens)
+    run = LoadTestRun(
+        loadtest=cfg,
+        profile=profile,
+        url=url,
+        label=label,
+        max_tokens=max_tokens,
+        workers=workers,
+    )
     meta = lt.RunMeta(
         label=label,
         url=url,
@@ -309,7 +327,7 @@ def loadtest(
         record=collect_run_record(run, packages=LOADTEST_PACKAGES, repo=Path.cwd()),
         env=collect_env_info(LOADTEST_PACKAGES),
     )
-    asyncio.run(_run_loadtest(cfg, profile, out_dir, meta, clips, max_tokens))
+    asyncio.run(_run_loadtest(cfg, profile, out_dir, meta, clips, max_tokens, workers))
 
 
 async def _run_loadtest(
@@ -319,31 +337,28 @@ async def _run_loadtest(
     meta: "RunMeta",
     clips: "list[PoolClip]",
     max_tokens: int,
+    workers: int,
 ) -> None:
-    from asr_assess.benchmark.client import (
-        LeastOutstandingTransport,
-        OpenAITranscriptionTransport,
-        Transport,
-    )
-    from asr_assess.benchmark.loadtest import run_loadtest
+    from functools import partial
 
-    servers = [
-        OpenAITranscriptionTransport(u, cfg.request_timeout_s, max_tokens)
-        for u in split_urls(meta.url)
-    ]
-    transport: Transport = servers[0] if len(servers) == 1 else LeastOutstandingTransport(servers)
+    from asr_assess.benchmark.client import make_transport
+    from asr_assess.benchmark.loadtest import run_loadtest
+    from asr_assess.benchmark.workers import WorkerPool
+
+    factory = partial(make_transport, meta.url, cfg.request_timeout_s, max_tokens)
+    transport = factory()  # readiness, drain and metrics; and the clients when workers == 1
+    pool = WorkerPool(workers, clips, factory) if workers > 1 else None
     try:
         with _gpu_monitor(cfg.gpu_sample_hz) as gpu:
-            summary = await run_loadtest(transport, clips, cfg, profile, out_dir, meta, gpu)
+            summary = await run_loadtest(
+                transport, clips, cfg, profile, out_dir, meta, gpu, workers=pool
+            )
     finally:
         await transport.aclose()
+        if pool is not None:
+            pool.close()
     for verdict in summary.verdicts:
         log.info("Max sustainable at P95 RTF <= %s: %s", verdict.threshold, verdict.max_sustainable)
-
-
-def split_urls(url: str) -> list[str]:
-    """The server URLs in a comma-separated ``--url``."""
-    return [u.strip() for u in url.split(",") if u.strip()]
 
 
 @contextmanager

@@ -70,8 +70,8 @@ serve-vllm: ## Stock vllm serve from CFG (default configs/vllm/default.yaml; ser
 serve-vllm-two: ## Two vllm serve instances (default: both on GPU 0, ports 8000/8001; serve extra)
 	bash scripts/vllm_serve_two.sh
 
-loadtest: ## Load test URL as LABEL; PROFILE=quick|full, SERVER_CFG copied into the summary
-	uv run --extra http asr-assess loadtest --url $(URL) --label $(LABEL) --profile $(or $(PROFILE),quick) $(if $(SERVER_CFG),--server-config $(SERVER_CFG))
+loadtest: ## Load test URL as LABEL; PROFILE=quick|full|open_live, SERVER_CFG copied into the summary, WORKERS=client processes
+	uv run --extra http asr-assess loadtest --url $(URL) --label $(LABEL) --profile $(or $(PROFILE),quick) $(if $(SERVER_CFG),--server-config $(SERVER_CFG)) $(if $(WORKERS),--workers $(WORKERS))
 
 report: ## Tables and plots in results/plots from results/loadtest (report extra)
 	uv run --extra report asr-assess report
