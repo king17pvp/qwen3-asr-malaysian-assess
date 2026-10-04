@@ -116,6 +116,7 @@ decoding of a 1.7B model is bound by per-token kernel launches and Python overhe
 | FP8 KV cache | `vllm-fp8kv-u` | full | 104 | 64 | 0.387 | 469.2 | 80% | 24.0 | 14.6% |
 | FP8 weights + KV cache | `vllm-fp8-marlin-u` | full | 104* | 64* | 0.383 | 471.5 | 79% | 23.4 | **18.3%** |
 | Eager ablation (no CUDA graphs) | `vllm-eager-u-1` | quick | ≥ 128 | 64 | 0.457 | 473.6 | 88% | 23.9 | 14.2% |
+| Two engines on one GPU | `vllm-two-u-q` | quick | ~120 | 32 | 0.500 | 444.8 | 100% | 20.9 (both) | 14.3% |
 | **Final** (`vllm/tuned.yaml`) | `final` | **full** | **116** | **64** | **0.479** | 449.0 | 85% | 23.2 | 14.6% |
 
 \* Passes the load-test rule because WER under load is compared with the same run's single-stream
@@ -268,6 +269,54 @@ Per-run concurrency tables: `results/plots/concurrency_<run>.md`.
     before it could ship.
   - The final configuration stays bf16.
 
+### 3.8 Two engines on one GPU
+
+- **Hypothesis:** the ~78 req/s ceiling is one EngineCore saturating one CPU core while the GPU idles
+  12–25% (§4). A second vLLM instance on the same GPU adds a second EngineCore on a second core and
+  should use that idle GPU time.
+- **Change:** two `vllm serve` instances on the one RTX 3090 (`configs/vllm/two_instances_a.yaml` and
+  `two_instances_b.yaml`, ports 8000 and 8001): the tuned settings with 0.45 of GPU memory each and
+  `max_num_batched_tokens` 8192 so both fit (that knob made no difference in §3.4). Started one after
+  the other by `scripts/vllm_serve_two.sh`. The load-test client sends each request to the instance
+  with fewer requests in flight (a least-outstanding-requests balancer). Quick wide profile (levels up
+  to 256), unique audio, compared with the one-engine quick run `vllm-tuned-u-q1`.
+- **Measurement (`vllm-two-u-q`):**
+
+  | Streams | P95 RTF, one engine | P95 RTF, two engines | Req/s, one engine | Req/s, two engines | GPU util, two engines |
+  |---:|---:|---:|---:|---:|---:|
+  | 1 | 0.052 | 0.053 | 5.62 | 5.62 | 88% |
+  | 2 | 0.060 | **0.107** | 9.47 | 5.65 | 99% |
+  | 4 | 0.069 | 0.123 | 16.60 | 9.77 | 100% |
+  | 16 | 0.120 | 0.168 | 38.62 | 28.43 | 100% |
+  | 64 | 0.279 | 0.330 | 65.87 | 55.38 | 100% |
+  | 128 | 0.464 | **0.531** | 78.60 | 69.70 | 100% |
+  | 192 | — | 0.790 | — | 73.85 | 100% |
+
+  Max streams: about **120 at P95 ≤ 0.5** (P95 0.500, exactly at the threshold) and **32 at ≤ 0.3**,
+  against ≥ 128 and 64 for one engine. Peak 73.9 req/s (at 192 streams) against 78.6. No failed
+  requests; WER 13.9–15.1% at every level. KV cache per engine reaches ~84% at 128 streams and ~99% at
+  192 (53 requests waiting).
+- **Result: worse at every level from 2 streams up; the hypothesis is refuted on this setup.**
+  - **The two processes take turns on the GPU.** GPU utilization jumps from 88% to 99–100% as soon as
+    both engines have work, yet at 2 streams (one request per engine) throughput barely moves from
+    1 stream: 34.3 vs 33.2 audio-s/s, where one engine running both requests as a batch of 2 reaches
+    56.8. Without NVIDIA MPS, kernels from different processes do not run concurrently; the GPU
+    time-slices between the two contexts. NVML's 100% means a kernel was always resident, not that
+    the SMs were full.
+  - **Each engine batches half the requests**, so the batching efficiency that made continuous
+    batching win (§3.3) is split in two.
+  - **Memory gets tight:** with 0.45 of the GPU each, the KV cache fills at the top levels, where one
+    engine never passed 17%.
+  - So the second EngineCore does remove the single-core CPU limit, but GPU time-slicing and halved
+    batches cost more than it gains. The CPU bottleneck (§4) still stands; the fix has to keep **one
+    engine per GPU**.
+  - Not tested: NVIDIA MPS (lets kernels from two processes share the SMs; often unavailable in
+    rented containers), and two engines on **two** GPUs (`configs/vllm/dp2.yaml`, vLLM
+    `--data-parallel-size 2`; this box has one GPU).
+- **Tooling added for it:** the load test accepts several comma-separated server URLs and routes each
+  request to the least busy one; the GPU monitor samples every visible GPU (mean utilization, total
+  memory); `quick_wide` / `full_wide` profiles go up to 256 streams.
+
 ## 4. Bottleneck analysis: the final system
 
 Concurrency table for `final` (`results/plots/concurrency_final.md`; full profile; tested
@@ -344,6 +393,7 @@ are not journey rows. The HF rows are unaffected (no cross-request cache).
 | Async scheduling | overlap engine CPU work with GPU steps | already on: vLLM 0.30.0 enables it by default (`async_scheduling: None` → on), so there was nothing to change |
 | FP8 KV cache | more KV capacity | capacity doubled, not used (§3.7) |
 | FP8 weights | lower latency | −23% P95 at 1 stream, but one clip loops deterministically, lifting eval WER to 18.78% (§3.7) |
+| Two vLLM instances on one GPU | a second EngineCore lifts the CPU ceiling | worse at every level ≥ 2 streams (128 streams: P95 0.531 vs 0.464; peak 73.9 vs 78.6 req/s): the two processes time-slice the GPU and each batches half the requests (§3.8) |
 | HF batching `max_batch` 32 / `max_wait_ms` 30 | bigger batches | no better than 16 / 10 (§3.2) |
 
 ### 5.3 Rare connection errors decide some verdicts
@@ -380,10 +430,10 @@ It was found from the per-clip error diff. Reading vLLM's `finish_reason` would 
 
 ## 6. Recommendations
 
-1. **Run two vLLM instances on the GPU** (each `gpu_memory_utilization` ~0.45; the 1.7B model
-   needs ~3.8 GiB of weights) behind a round-robin balancer. That gives two EngineCores on two cores
-   for the same GPU, which is still 12–25% idle at the ceiling. This is the most direct test of §4 and
-   the most likely next capacity gain. Not run for lack of time.
+1. **Keep one engine per GPU; scale engines with GPUs.** Two instances sharing one GPU were measured
+   and are worse (§3.8): the processes time-slice the GPU and each batches half the load. To get
+   more EngineCores, give each its own GPU (vLLM data parallel, `configs/vllm/dp2.yaml`, untested
+   here), or try NVIDIA MPS where the host allows it.
 2. **Size CPUs for the engine, not just the GPU.** On this box, capacity is set by single-core speed:
    a CPU with faster cores should raise the ~78 req/s ceiling directly (the HF baseline was already
    23% faster on a Ryzen 7 5800X than on this i7-8700 with the same GPU, §2). When renting, prefer
