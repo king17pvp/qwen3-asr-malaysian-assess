@@ -38,6 +38,8 @@ audio features. Supporting evidence: the same Transformers benchmark ran 23% fas
 Limitation: the per-request attribution is inferred from these comparisons; a profiler could not
 attach inside the rented container (no `ptrace`).
 
+A second engine on the same GPU does not help: the two processes time-slice the GPU (`reports/inference.md` §3.8), so the CPU limit has to be removed inside one engine or by giving each engine its own GPU.
+
 ## 3. Largest improvement
 
 **Continuous batching, by moving from Transformers to vLLM:** 1 → 116 streams, and 7.5 → 465
@@ -56,10 +58,11 @@ Smaller steps, for scale: SDPA −17% single-stream P95; dynamic batching 2× th
 
 In order of expected value:
 
-1. **Two vLLM instances per GPU** behind a least-outstanding-requests balancer (each at ~0.45 of GPU
-   memory; the model's weights are 3.8 GiB). This gives two EngineCores on two cores and uses the
-   12–25% of GPU that sits idle at the ceiling. It is the most direct test of the bottleneck and the
-   most likely capacity gain.
+1. **Remove the per-request CPU cost inside one engine.** Two vLLM instances on one GPU were tried
+   (`reports/inference.md` §3.8) and lost: P95 0.531 vs 0.464 at 128 streams, because two processes time-slice the GPU and
+   each batches half the requests. So the next steps are: profile EngineCore (item 2) and remove the
+   ~12.7 ms per request, benchmark on a CPU with faster single cores, and test MPS or one engine
+   per GPU on a multi-GPU box (`dp2.yaml`).
 2. **Profile EngineCore** (`py-spy` on a host that allows it) during the 128-stream level to find
    the ~12.7 ms per request, then remove it: e.g. a more compact audio-feature path, or moving
    feature work out of the engine loop. Possibly a vLLM upstream fix.
@@ -92,7 +95,7 @@ In order of expected value:
 
 I would plan on **5–6 GPU replicas for live sessions**, validate it with the open-loop test from
 question 4 before committing, and keep the ~14-GPU figure as the bound for batch-style clients that
-submit audio back-to-back. Two instances per GPU or faster CPUs would lower both numbers.
+submit audio back-to-back. Faster single-core CPUs would lower both numbers; two instances per GPU would not (`reports/inference.md` §3.8).
 
 **Design:**
 
@@ -107,7 +110,7 @@ clients ──WebSocket/gRPC──▶ ingest gateway (stateless, autoscaled on C
                                      │
               ┌──────────────┬───────┴──────┬──────────────┐
               ▼              ▼              ▼              ▼
-          vLLM pod 1     vLLM pod 2   …  vLLM pod N   (1 GPU each, 1–2 instances,
+          vLLM pod 1     vLLM pod 2   …  vLLM pod N   (1 GPU each, one engine per GPU,
           bf16, tuned    …                             host with fast single cores)
 ```
 

@@ -30,20 +30,32 @@ class GpuReader(Protocol):
         ...
 
 
-class PynvmlReader:
-    """NVML reader for one device (needs the `http` extra and an NVIDIA driver)."""
+def combine_readings(readings: Sequence[tuple[float, float]]) -> tuple[float, float]:
+    """One reading for several GPUs: mean utilization, total memory used."""
+    return sum(u for u, _ in readings) / len(readings), sum(m for _, m in readings)
 
-    def __init__(self, index: int = 0) -> None:
+
+class PynvmlReader:
+    """NVML reader for every visible device (needs the `http` extra and an NVIDIA driver).
+
+    With several GPUs, utilization is their mean and memory their sum (``combine_readings``).
+    """
+
+    def __init__(self) -> None:
         import pynvml
 
         self._nvml: Any = pynvml
         pynvml.nvmlInit()
-        self._handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+        count = pynvml.nvmlDeviceGetCount()
+        self._handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(count)]
 
     def read(self) -> tuple[float, float]:
-        """Current utilization and memory used."""
-        util = self._nvml.nvmlDeviceGetUtilizationRates(self._handle).gpu
-        used = self._nvml.nvmlDeviceGetMemoryInfo(self._handle).used
+        """Current utilization and memory used, combined over devices."""
+        return combine_readings([self._read_one(h) for h in self._handles])
+
+    def _read_one(self, handle: Any) -> tuple[float, float]:
+        util = self._nvml.nvmlDeviceGetUtilizationRates(handle).gpu
+        used = self._nvml.nvmlDeviceGetMemoryInfo(handle).used
         return float(util), float(used) / _BYTES_PER_GIB
 
 

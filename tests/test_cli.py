@@ -10,7 +10,7 @@ import click
 import pytest
 from typer.testing import CliRunner, Result
 
-from asr_assess.cli import app
+from asr_assess.cli import app, split_urls
 from asr_assess.core.manifest import write_manifest
 from tests.fakes import ScriptedEngine, write_clips
 
@@ -248,6 +248,11 @@ def test_loadtest_refuses_existing_label_before_loading_audio(
     assert invoke_loadtest(config, "--dry-run").exit_code == 1
 
 
+def test_loadtest_url_list_is_split_on_commas() -> None:
+    assert split_urls("http://a:8000") == ["http://a:8000"]
+    assert split_urls(" http://a:8000 , http://a:8001,") == ["http://a:8000", "http://a:8001"]
+
+
 def test_serve_dry_run_loads_no_model() -> None:
     code = (
         "import sys; from typer.testing import CliRunner; from asr_assess.cli import app; "
@@ -302,6 +307,18 @@ def test_vllm_journey_steps_differ_from_tuned_only_in_their_change() -> None:
         "fp8-w": {"quantization": "fp8", "extra_args": ["--linear-backend", "marlin"]},
         "fp8-kv": {"kv_cache_dtype": "fp8"},
         "eager": {"enforce_eager": True},
+        "dp2": {"extra_args": ["--data-parallel-size", "2"]},
     }
     for name, change in changes.items():
         assert load(name) == tuned | change, name
+
+
+def test_two_instances_split_one_gpu_and_differ_only_in_port() -> None:
+    from asr_assess.core.config import VLLMServeConfig, load_config
+
+    a, b = (
+        load_config(CONFIGS / "vllm" / f"two_instances_{n}.yaml", VLLMServeConfig) for n in "ab"
+    )
+    assert a.port != b.port
+    assert a.model_dump(exclude={"port"}) == b.model_dump(exclude={"port"})
+    assert (a.gpu_memory_utilization or 0) + (b.gpu_memory_utilization or 0) <= 0.92

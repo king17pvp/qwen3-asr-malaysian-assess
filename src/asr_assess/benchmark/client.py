@@ -7,6 +7,7 @@ journey row; tests use a fake.
 import asyncio
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -113,3 +114,37 @@ class OpenAITranscriptionTransport:
     async def aclose(self) -> None:
         """Close the pooled client."""
         await self._client.aclose()
+
+
+class LeastOutstandingTransport:
+    """Several servers behind one Transport: each request goes to the server with the fewest
+    requests in flight (ties to the first), as a least-outstanding-requests balancer would."""
+
+    def __init__(self, servers: Sequence[Transport]) -> None:
+        if not servers:
+            raise ValueError("at least one server is needed")
+        self._servers = list(servers)
+        self._in_flight = [0] * len(servers)
+
+    async def transcribe(self, wav: bytes) -> TransportResult:
+        """Send to the least busy server."""
+        i = min(range(len(self._servers)), key=self._in_flight.__getitem__)
+        self._in_flight[i] += 1
+        try:
+            return await self._servers[i].transcribe(wav)
+        finally:
+            self._in_flight[i] -= 1
+
+    async def wait_ready(self, timeout_s: float) -> bool:
+        """Whether every server became healthy within ``timeout_s``."""
+        return all(await asyncio.gather(*(s.wait_ready(timeout_s) for s in self._servers)))
+
+    async def scrape_metrics(self) -> str | None:
+        """Every server's metrics text joined, so gauges are summed over servers; None if none."""
+        texts = await asyncio.gather(*(s.scrape_metrics() for s in self._servers))
+        found = [t for t in texts if t is not None]
+        return "\n".join(found) if found else None
+
+    async def aclose(self) -> None:
+        """Close every server's client."""
+        await asyncio.gather(*(s.aclose() for s in self._servers))

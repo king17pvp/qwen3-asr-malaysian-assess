@@ -1,0 +1,10 @@
+# Two engines on two GPUs (vLLM data parallel): tuned + --data-parallel-size 2. One URL; vLLM starts
+# one EngineCore per GPU and, by default, two API servers that balance between them. Tests whether
+# capacity scales with engines (one CPU core each) when every engine has its own GPU.
+model: king17pvp/qwen3-asr-1.7b-malaysian
+port: 8000
+gpu_memory_utilization: 0.92
+max_num_seqs: 128
+max_num_batched_tokens: 16384
+max_model_len: 4096
+extra_args: ["--data-parallel-size", "2"]

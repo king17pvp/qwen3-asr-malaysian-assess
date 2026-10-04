@@ -1,9 +1,15 @@
 """Tests for the load-test HTTP transport."""
 
+import asyncio
+
 import httpx
 import pytest
 
-from asr_assess.benchmark.client import OpenAITranscriptionTransport
+from asr_assess.benchmark.client import (
+    LeastOutstandingTransport,
+    OpenAITranscriptionTransport,
+    TransportResult,
+)
 
 
 def transport(handler: httpx.MockTransport) -> OpenAITranscriptionTransport:
@@ -67,3 +73,72 @@ async def test_wait_ready_polls_health_until_200() -> None:
 async def test_wait_ready_gives_up() -> None:
     t = transport(httpx.MockTransport(lambda r: httpx.Response(503)))
     assert not await t.wait_ready(timeout_s=0.05)
+
+
+class FakeServer:
+    """A Transport that holds each request until released, counting what it saw."""
+
+    def __init__(self, ready: bool = True, metrics: str | None = None) -> None:
+        self.sent = 0
+        self.closed = False
+        self.ready, self.metrics = ready, metrics
+        self.release = asyncio.Event()
+
+    async def transcribe(self, wav: bytes) -> TransportResult:
+        self.sent += 1
+        await self.release.wait()
+        return TransportResult("ok", "t")
+
+    async def wait_ready(self, timeout_s: float) -> bool:
+        return self.ready
+
+    async def scrape_metrics(self) -> str | None:
+        return self.metrics
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_least_outstanding_spreads_concurrent_requests() -> None:
+    a, b = FakeServer(), FakeServer()
+    spread = LeastOutstandingTransport([a, b])
+    tasks = [asyncio.create_task(spread.transcribe(b"x")) for _ in range(4)]
+    await asyncio.sleep(0)
+    assert (a.sent, b.sent) == (2, 2)
+    a.release.set()
+    b.release.set()
+    assert all(r.status == "ok" for r in await asyncio.gather(*tasks))
+
+
+async def test_least_outstanding_prefers_the_idle_server() -> None:
+    a, b = FakeServer(), FakeServer()
+    spread = LeastOutstandingTransport([a, b])
+    busy = asyncio.create_task(spread.transcribe(b"x"))
+    await asyncio.sleep(0)
+    b.release.set()
+    await spread.transcribe(b"x")
+    await spread.transcribe(b"x")
+    assert (a.sent, b.sent) == (1, 2)
+    a.release.set()
+    await busy
+
+
+async def test_least_outstanding_is_ready_only_when_every_server_is() -> None:
+    assert await LeastOutstandingTransport([FakeServer(), FakeServer()]).wait_ready(1.0)
+    assert not await LeastOutstandingTransport([FakeServer(), FakeServer(ready=False)]).wait_ready(
+        1.0
+    )
+
+
+async def test_least_outstanding_joins_metrics_and_closes_all() -> None:
+    a, b, c = FakeServer(metrics="m 1"), FakeServer(metrics=None), FakeServer(metrics="m 2")
+    spread = LeastOutstandingTransport([a, b, c])
+    assert await spread.scrape_metrics() == "m 1\nm 2"
+    assert await LeastOutstandingTransport([FakeServer()]).scrape_metrics() is None
+    await spread.aclose()
+    assert a.closed and b.closed and c.closed
+
+
+def test_least_outstanding_needs_a_server() -> None:
+    with pytest.raises(ValueError):
+        LeastOutstandingTransport([])
