@@ -79,11 +79,16 @@ def build_pool(entries: Sequence[ManifestEntry], sample_rate: int) -> list[PoolC
 
 
 async def _send(
-    transport: Transport, clip: PoolClip, ids: tuple[int, int, int], clock: Clock
+    transport: Transport,
+    clip: PoolClip,
+    ids: tuple[int, int, int],
+    clock: Clock,
+    due: float | None = None,
 ) -> RequestRecord:
     """Send one uniquely tagged copy of ``clip`` and record what the client saw.
 
-    The random tag (``tag_wav``) means no server can serve a repeat from cache.
+    The random tag (``tag_wav``) means no server can serve a repeat from cache. ``due`` is the
+    open-loop scheduled send time, kept so client lag (``sent - due``) is visible in the results.
     """
     stream, level, repeat = ids
     sent = clock()
@@ -99,6 +104,7 @@ async def _send(
         clock(),
         result.status,
         result.text,
+        due,
     )
 
 
@@ -133,7 +139,7 @@ async def run_session(
     tasks: list[asyncio.Task[RequestRecord]] = []
     for at, index in schedule:
         await asyncio.sleep(max(0.0, at - clock()))
-        tasks.append(asyncio.create_task(_send(transport, clips[index], ids, clock)))
+        tasks.append(asyncio.create_task(_send(transport, clips[index], ids, clock, due=at)))
     return list(await asyncio.gather(*tasks))
 
 
@@ -341,4 +347,6 @@ def _within(t: float, windows: Sequence[Window]) -> bool:
 
 def _brief(result: LevelResult) -> str:
     p95 = f"{result.rtf.p95:.3f}" if result.rtf else "n/a"
-    return f"P95 RTF {p95}, ok {result.n_ok}/{result.n_sent}, WER {result.wer}"
+    lag = result.client_lag_max_s
+    tail = "" if lag is None else f", client lag max {lag * 1000:.0f} ms"
+    return f"P95 RTF {p95}, ok {result.n_ok}/{result.n_sent}, WER {result.wer}{tail}"

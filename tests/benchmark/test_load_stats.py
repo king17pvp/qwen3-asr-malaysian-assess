@@ -149,3 +149,19 @@ def test_summaries_written_before_open_loop_load_as_closed(tmp_path: Path) -> No
     path.write_text(json.dumps(raw), encoding="utf-8")
     old = read_summary(path)
     assert (old.mode, old.pause_s) == ("closed", 0.0)
+
+
+def test_summarize_level_reports_open_loop_client_lag() -> None:
+    # sent - due: how late the client sent each request after the speaker finished speaking
+    records = [
+        RequestRecord("c1", 0, 1, 0, 2.0, "2-5", sent, sent + 0.2, status, "a b", due=sent - lag)
+        for sent, lag, status in [(0.0, 0.0, "ok"), (1.0, 0.01, "ok"), (2.0, 0.1, "timeout")]
+    ]
+    res = summarize_level(1, records, REFS, 2.0, 1, None, None)
+    assert res.client_lag_max_s == pytest.approx(0.1)  # failed requests count: lag is client-side
+    assert res.client_lag_p95_s == pytest.approx(0.091)
+
+
+def test_closed_loop_records_have_no_client_lag() -> None:
+    res = summarize_level(1, [rec(0, 0.2)], REFS, 2.0, 1, None, None)
+    assert (res.client_lag_p95_s, res.client_lag_max_s) == (None, None)

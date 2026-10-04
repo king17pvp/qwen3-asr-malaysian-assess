@@ -49,6 +49,10 @@ class LevelResult(StrictModel):
     cer: float | None
     gpu: GpuWindow | None
     vllm: dict[str, GaugeStats] | None
+    # open loop: how late the client sent requests after their scheduled time (event-loop lag,
+    # which RTF does not include); None for closed loop
+    client_lag_p95_s: float | None = None
+    client_lag_max_s: float | None = None
 
 
 class Verdict(StrictModel):

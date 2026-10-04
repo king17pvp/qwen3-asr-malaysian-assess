@@ -136,6 +136,8 @@ async def test_open_session_sends_on_the_speaking_schedule_without_waiting() -> 
     assert all(abs(r.sent - at) < 0.03 for r, (at, _) in zip(records, schedule, strict=True))
     assert fake.max_inflight >= 3
     assert all(r.status == "ok" and r.finished - r.sent >= 0.29 for r in records)
+    assert [r.due for r in records] == [at for at, _ in schedule]
+    assert all(r.due is not None and r.sent >= r.due for r in records)
 
 
 async def test_open_run_measures_every_level_and_records_its_mode(tmp_path: Path) -> None:
@@ -147,6 +149,7 @@ async def test_open_run_measures_every_level_and_records_its_mode(tmp_path: Path
     assert verdicts(out.verdicts) == {0.5: 8, 0.3: 8}  # 0.01 s on 0.2 s clips: RTF ~0.05
     saved = json.loads((tmp_path / "run" / "summary.json").read_text())
     assert (saved["mode"], saved["pause_s"]) == ("open", 0.05)
+    assert all(lv.client_lag_max_s is not None and lv.client_lag_max_s < 0.05 for lv in out.levels)
 
 
 async def test_open_run_fails_a_level_when_requests_fail(tmp_path: Path) -> None:

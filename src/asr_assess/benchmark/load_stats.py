@@ -32,7 +32,10 @@ class PoolClip:
 
 @dataclass(frozen=True)
 class RequestRecord:
-    """One request as the client saw it; RTF = (finished - sent) / audio_s."""
+    """One request as the client saw it; RTF = (finished - sent) / audio_s.
+
+    ``due``: open loop only, when the speaker finished the utterance (the scheduled send time).
+    """
 
     id: str
     stream: int
@@ -44,6 +47,7 @@ class RequestRecord:
     finished: float
     status: str
     text: str
+    due: float | None = None
 
 
 def stream_order(n_clips: int, stream: int, seed: int) -> list[int]:
@@ -102,6 +106,8 @@ def summarize_level(
     n_timeout = sum(r.status == "timeout" for r in records)
     rates = throughput(sum(r.audio_s for r in ok), len(ok), window_s * repeats)
     stats = summarize_rtf([rtf(r.finished - r.sent, r.audio_s) for r in ok]) if ok else None
+    lags = [r.sent - r.due for r in records if r.due is not None]
+    lag = summarize_rtf(lags) if lags else None
     return LevelResult(
         level=level,
         repeats=repeats,
@@ -116,6 +122,8 @@ def summarize_level(
         cer=_error_rate(ok, references, "char"),
         gpu=gpu,
         vllm=vllm,
+        client_lag_p95_s=lag.p95 if lag else None,
+        client_lag_max_s=lag.max if lag else None,
     )
 
 
