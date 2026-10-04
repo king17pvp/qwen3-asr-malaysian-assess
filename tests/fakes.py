@@ -117,6 +117,16 @@ class PidServer(FakeTransport):
         super().__init__(latency=_quick, text=_pid)
 
 
+class IdServer(FakeTransport):
+    """A fast fake answering with its own identity, so tests can see which transport sent what."""
+
+    def __init__(self) -> None:
+        super().__init__(latency=_quick, text=self._me)
+
+    def _me(self, wav: bytes, n: int) -> str:
+        return f"{os.getpid()}:{id(self)}"
+
+
 def fake_meta(label: str = "t") -> RunMeta:
     """Provenance for a load-test run against a fake server."""
     record = RunRecord(

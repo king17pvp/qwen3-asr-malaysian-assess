@@ -175,4 +175,3 @@ def test_a_level_the_client_fell_behind_on_is_not_sustainable() -> None:
     assert not is_sustainable(lagging, 0.5, 0.0, 1.0, max_client_lag_s=0.5)
     on_time = lagging.model_copy(update={"client_lag_p95_s": 0.01})
     assert is_sustainable(on_time, 0.5, 0.0, 1.0, max_client_lag_s=0.5)
-

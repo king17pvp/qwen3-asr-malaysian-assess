@@ -18,7 +18,7 @@ from asr_assess.benchmark.loadtest import ClientPlan, run_loadtest
 from asr_assess.benchmark.workers import WorkerPool
 from asr_assess.core.config import LoadTestConfig
 from asr_assess.core.transcription_api import encode_wav
-from tests.fakes import PidServer, QuickServer, fake_meta
+from tests.fakes import IdServer, PidServer, QuickServer, fake_meta
 
 WAV = encode_wav(np.zeros(3200, dtype=np.float32), 16000)
 CLIPS = [PoolClip(f"c{i}", 0.2, "2-5", "a b", WAV) for i in range(5)]
@@ -76,6 +76,23 @@ async def test_pool_spreads_clients_over_processes_and_keeps_the_timetable() -> 
     pids = {r.text for r in records}
     assert len(pids) == 2 and str(os.getpid()) not in pids  # two workers, not this process
     assert all(r.due is not None and 0.0 <= r.sent - r.due < 0.05 for r in records)
+
+
+async def test_each_client_in_a_worker_gets_its_own_transport() -> None:
+    # one shared HTTP pool per worker grows costly with hundreds of requests in flight; each
+    # client (speaker or stream) gets its own
+    with WorkerPool(2, CLIPS, IdServer) as pool:
+        start = time.monotonic() + 0.1
+        plans = [
+            ClientPlan(ids=(s, 6, 0), schedule=tuple((start + 0.05 * k, k) for k in range(2)))
+            for s in range(6)
+        ]
+        records = await pool.run(plans)
+    by_stream: dict[int, set[str]] = {}
+    for r in records:
+        by_stream.setdefault(r.stream, set()).add(r.text)
+    assert all(len(ids) == 1 for ids in by_stream.values())  # one transport per client
+    assert len(set().union(*by_stream.values())) == 6  # and no two clients share one
 
 
 async def test_pool_runs_closed_loop_streams_too() -> None:

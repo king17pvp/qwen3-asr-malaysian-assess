@@ -2,7 +2,7 @@
 
 One process playing hundreds of open-loop speakers falls behind its own timetable; past that
 point the load generator, not the server, sets the limit. A ``WorkerPool`` runs each level's
-clients split over several processes, each with its own transport; the parent keeps the sweep,
+clients split over several processes, with one transport per client; the parent keeps the sweep,
 the drain, GPU and metrics sampling, and the results.
 """
 
@@ -41,13 +41,20 @@ def _run(plans: Sequence[ClientPlan]) -> list[RequestRecord]:
 
 
 async def _run_async(plans: Sequence[ClientPlan]) -> list[RequestRecord]:
-    if _factory is None:
+    """Each client gets its own transport: one HTTP pool shared by hundreds of in-flight
+    requests costs CPU that grows with them, the feedback loop that can stall a client."""
+    factory = _factory
+    if factory is None:
         raise RuntimeError("worker used before its initializer ran")
-    transport = _factory()
+    transports = [factory() for _ in plans]
     try:
-        return await run_plans(transport, _clips, plans, time.monotonic)
+        runs = [
+            run_plans(transport, _clips, [plan], time.monotonic)
+            for transport, plan in zip(transports, plans, strict=True)
+        ]
+        return [r for got in await asyncio.gather(*runs) for r in got]
     finally:
-        await transport.aclose()
+        await asyncio.gather(*(t.aclose() for t in transports))
 
 
 class WorkerPool:
