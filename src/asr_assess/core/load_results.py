@@ -1,7 +1,7 @@
 """Schema of load-test result files: written by the benchmark, read by reporting."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from asr_assess.core.config import StrictModel
 
@@ -63,6 +63,8 @@ class LoadRunSummary(StrictModel):
 
     label: str
     profile: str
+    mode: Literal["closed", "open"] = "closed"  # client model of the profile (LoadProfile.mode)
+    pause_s: float = 0.0  # open loop: pause between a speaker's utterances
     url: str
     server_config: str | None  # the server YAML's text, as run
     record: dict[str, Any]

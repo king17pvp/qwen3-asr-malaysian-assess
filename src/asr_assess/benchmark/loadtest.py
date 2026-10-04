@@ -1,4 +1,8 @@
-"""Closed-loop N-stream load test: each stream sends one utterance, waits, then sends the next.
+"""N-client load test, closed- or open-loop.
+
+Closed loop: each stream sends one utterance, waits for the transcript, then sends the next.
+Open loop: each session is a live speaker that sends an utterance once it has finished saying it
+(then pauses), never waiting for transcripts.
 
 Per-request RTF = end-to-end latency (including queueing) / audio duration. A request counts when
 it is *sent* inside the steady-state window, so slow requests finishing after it still count.
@@ -10,7 +14,7 @@ import logging
 import math
 import secrets
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -24,6 +28,8 @@ from asr_assess.benchmark.load_stats import (
     in_window,
     is_sustainable,
     max_sustainable,
+    open_schedule,
+    session_phase,
     stream_order,
     summarize_level,
 )
@@ -72,6 +78,30 @@ def build_pool(entries: Sequence[ManifestEntry], sample_rate: int) -> list[PoolC
     ]
 
 
+async def _send(
+    transport: Transport, clip: PoolClip, ids: tuple[int, int, int], clock: Clock
+) -> RequestRecord:
+    """Send one uniquely tagged copy of ``clip`` and record what the client saw.
+
+    The random tag (``tag_wav``) means no server can serve a repeat from cache.
+    """
+    stream, level, repeat = ids
+    sent = clock()
+    result = await transport.transcribe(tag_wav(clip.wav, secrets.randbits(64)))
+    return RequestRecord(
+        clip.id,
+        stream,
+        level,
+        repeat,
+        clip.audio_s,
+        clip.bucket,
+        sent,
+        clock(),
+        result.status,
+        result.text,
+    )
+
+
 async def run_stream(
     transport: Transport,
     clips: Sequence[PoolClip],
@@ -80,33 +110,31 @@ async def run_stream(
     stop_at: float,
     clock: Clock,
 ) -> list[RequestRecord]:
-    """One closed-loop client; ``ids`` is (stream, level, repeat). Stops sending at ``stop_at``.
-
-    Each request's audio gets a random tag (``tag_wav``) so no server can serve a repeat from cache.
-    """
-    stream, level, repeat = ids
+    """One closed-loop client; ``ids`` is (stream, level, repeat). Stops sending at ``stop_at``."""
     records: list[RequestRecord] = []
     i = 0
     while clock() < stop_at:
         clip = clips[order[i % len(order)]]
         i += 1
-        sent = clock()
-        result = await transport.transcribe(tag_wav(clip.wav, secrets.randbits(64)))
-        records.append(
-            RequestRecord(
-                clip.id,
-                stream,
-                level,
-                repeat,
-                clip.audio_s,
-                clip.bucket,
-                sent,
-                clock(),
-                result.status,
-                result.text,
-            )
-        )
+        records.append(await _send(transport, clip, ids, clock))
     return records
+
+
+async def run_session(
+    transport: Transport,
+    clips: Sequence[PoolClip],
+    schedule: Sequence[tuple[float, int]],
+    ids: tuple[int, int, int],
+    clock: Clock,
+) -> list[RequestRecord]:
+    """One open-loop live speaker: sends ``clips[index]`` at each scheduled time without waiting
+    for earlier transcripts, then waits for all of them. Records come back in schedule order.
+    """
+    tasks: list[asyncio.Task[RequestRecord]] = []
+    for at, index in schedule:
+        await asyncio.sleep(max(0.0, at - clock()))
+        tasks.append(asyncio.create_task(_send(transport, clips[index], ids, clock)))
+    return list(await asyncio.gather(*tasks))
 
 
 async def run_level(
@@ -118,16 +146,22 @@ async def run_level(
     seed: int,
     clock: Clock,
 ) -> tuple[list[RequestRecord], Window]:
-    """``level`` streams through warm-up and steady state; the steady-state requests and window."""
-    start = clock() + profile.warmup_s
+    """``level`` clients through warm-up and steady state; the steady-state requests and window."""
+    begin = clock()
+    start = begin + profile.warmup_s
     end = start + profile.steady_state_s
-    streams = [
-        run_stream(
-            transport, clips, stream_order(len(clips), s, seed), (s, level, repeat), end, clock
-        )
-        for s in range(level)
-    ]
-    records = [r for stream in await asyncio.gather(*streams) for r in stream]
+    audio = [c.audio_s for c in clips]
+    clients: list[Awaitable[list[RequestRecord]]] = []
+    for s in range(level):
+        order = stream_order(len(clips), s, seed)
+        ids = (s, level, repeat)
+        if profile.mode == "open":
+            first = begin + session_phase(audio[order[0]], s, seed)
+            schedule = open_schedule(audio, order, first, profile.pause_s, end)
+            clients.append(run_session(transport, clips, schedule, ids, clock))
+        else:
+            clients.append(run_stream(transport, clips, order, ids, end, clock))
+    records = [r for client in await asyncio.gather(*clients) for r in client]
     return in_window(records, start, end), (start, end)
 
 
@@ -289,6 +323,8 @@ def _summary(run: _Run, profile_name: str, meta: RunMeta) -> LoadRunSummary:
     return LoadRunSummary(
         label=meta.label,
         profile=profile_name,
+        mode=run.profile.mode,
+        pause_s=run.profile.pause_s,
         url=meta.url,
         server_config=meta.server_config,
         record=meta.record.model_dump(mode="json"),

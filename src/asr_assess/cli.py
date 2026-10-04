@@ -260,7 +260,9 @@ def loadtest(
     label: Annotated[
         str, typer.Option(help="Journey row name; results go to <output_dir>/<label>")
     ],
-    profile: Annotated[str, typer.Option(help="Profile in the config: full or quick")] = "quick",
+    profile: Annotated[
+        str, typer.Option(help="Profile in the config, e.g. full, quick or open_live")
+    ] = "quick",
     config: Annotated[Path, typer.Option(exists=True, dir_okay=False)] = Path(
         "configs/loadtest.yaml"
     ),
@@ -273,7 +275,7 @@ def loadtest(
         bool, typer.Option(help="Build the audio pool and log the schedule; send nothing.")
     ] = False,
 ) -> None:
-    """Closed-loop N-stream load test against an HF or vLLM server (needs the `http` extra)."""
+    """Closed- or open-loop load test against an HF or vLLM server (needs the `http` extra)."""
     from asr_assess.benchmark import loadtest as lt
     from asr_assess.benchmark.env_info import collect_env_info
 

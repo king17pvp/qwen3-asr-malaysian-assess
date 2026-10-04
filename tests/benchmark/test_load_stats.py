@@ -1,5 +1,6 @@
 """Tests for the pure load-test maths."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -130,3 +131,21 @@ def test_session_phase_is_seeded_spread_and_within_the_first_clip() -> None:
     assert phases == [session_phase(6.0, stream, seed=7) for stream in range(200)]
     assert len({round(p, 6) for p in phases}) > 150  # spread out, not one shared offset
     assert session_phase(6.0, 0, seed=8) != phases[0]
+
+
+def test_summaries_written_before_open_loop_load_as_closed(tmp_path: Path) -> None:
+    raw: dict[str, object] = {
+        "label": "old",
+        "profile": "full",
+        "url": "http://s",
+        "server_config": None,
+        "record": {},
+        "env": {},
+        "reference_wer": None,
+        "levels": [],
+        "verdicts": [],
+    }
+    path = tmp_path / "summary.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    old = read_summary(path)
+    assert (old.mode, old.pause_s) == ("closed", 0.0)
