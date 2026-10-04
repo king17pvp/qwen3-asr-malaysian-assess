@@ -53,6 +53,9 @@ class LevelResult(StrictModel):
     # which RTF does not include); None for closed loop
     client_lag_p95_s: float | None = None
     client_lag_max_s: float | None = None
+    # seconds spent waiting for the server to finish earlier levels' requests before this level
+    # (summed over repeats); None when the server has no /metrics
+    drain_s: float | None = None
 
 
 class Verdict(StrictModel):

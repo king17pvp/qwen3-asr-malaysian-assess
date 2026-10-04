@@ -189,7 +189,16 @@ class _Run:
         """Run ``level`` for every repeat, write its requests and summary, and keep the result."""
         records: list[RequestRecord] = []
         windows: list[Window] = []
+        drained: float | None = None
         for repeat in range(self.profile.repeats):
+            waited = await _drain(
+                self.transport,
+                self.cfg.request_timeout_s,
+                1.0 / self.cfg.metrics_scrape_hz,
+                self.clock,
+            )
+            if waited is not None:
+                drained = (drained or 0.0) + waited
             got, window = await run_level(
                 self.transport,
                 self.clips,
@@ -209,7 +218,7 @@ class _Run:
             self.profile.repeats,
             self._gpu_window(windows),
             self._vllm_window(windows),
-        )
+        ).model_copy(update={"drain_s": drained})
         self._append(records, result)
         self.results[level] = result
         log.info("level %d: %s", level, _brief(result))
@@ -305,6 +314,35 @@ async def _bisect(run: _Run) -> None:
             return
         await run.measure(mid)
         passing, failing = (mid, failing) if run.passes(mid, threshold) else (passing, mid)
+
+
+async def _drain(
+    transport: Transport, timeout_s: float, period_s: float, clock: Clock
+) -> float | None:
+    """Wait until the server reports no running or waiting request, at most ``timeout_s``.
+
+    An overloaded open-loop level can leave a queue on the server after its client side ends;
+    starting the next level on top of it would fail that level for the wrong reason. Returns the
+    seconds waited, or None when the server has no metrics to ask.
+    """
+    start = clock()
+    while True:
+        text = await transport.scrape_metrics()
+        if text is None:
+            return None
+        gauges = parse_gauges(text)
+        busy = gauges.get("running", 0.0) + gauges.get("waiting", 0.0)
+        waited = clock() - start
+        if busy == 0.0:
+            if waited >= period_s:  # only when we actually had to wait
+                log.info("server drained in %.1f s", waited)
+            return waited
+        if waited >= timeout_s:
+            log.warning(
+                "server still has %.0f requests after %.0f s; starting anyway", busy, waited
+            )
+            return waited
+        await asyncio.sleep(period_s)
 
 
 async def _scrape(transport: Transport, period_s: float, clock: Clock, run: _Run) -> None:

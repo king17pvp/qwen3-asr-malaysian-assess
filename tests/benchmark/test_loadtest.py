@@ -171,6 +171,50 @@ async def test_closed_run_summary_says_closed(tmp_path: Path) -> None:
     assert (out.mode, out.pause_s) == ("closed", 0.0)
 
 
+class BusyServer(FakeTransport):
+    """A fake vLLM that reports requests still running until ``idle_at`` (monotonic time)."""
+
+    def __init__(self, idle_at: float) -> None:
+        super().__init__(latency=lambda n: 0.001, text=lambda wav, n: "a b")
+        self.idle_at = idle_at
+
+    async def scrape_metrics(self) -> str | None:
+        running = 2 if time.monotonic() < self.idle_at else 0
+        return f"vllm:num_requests_running {running}\nvllm:num_requests_waiting 0\n"
+
+
+def fast_metrics(config: LoadTestConfig) -> LoadTestConfig:
+    return config.model_copy(update={"metrics_scrape_hz": 20.0})
+
+
+async def test_each_level_waits_for_the_server_to_drain(tmp_path: Path) -> None:
+    fake = BusyServer(idle_at=time.monotonic() + 0.3)
+    config = fast_metrics(cfg(tmp_path, [1]))
+    await run_loadtest(fake, CLIPS, config, "t", tmp_path / "r", fake_meta(), None)
+    rows = [
+        json.loads(line) for line in (tmp_path / "r" / "requests.jsonl").read_text().splitlines()
+    ]
+    assert min(row["sent"] for row in rows) >= fake.idle_at
+    level = json.loads((tmp_path / "r" / "levels.jsonl").read_text().splitlines()[0])
+    assert 0.25 <= level["drain_s"] < 1.0
+
+
+async def test_drain_gives_up_after_the_request_timeout(tmp_path: Path) -> None:
+    fake = BusyServer(idle_at=float("inf"))  # never idle: the level still runs after 2 s
+    config = fast_metrics(cfg(tmp_path, [1]))
+    out = await run_loadtest(fake, CLIPS, config, "t", tmp_path / "r", fake_meta(), None)
+    assert out.levels[0].n_ok > 0
+    assert 2.0 <= (out.levels[0].drain_s or 0.0) < 3.0
+
+
+async def test_servers_without_metrics_are_not_drained(tmp_path: Path) -> None:
+    fake = FakeTransport(latency=lambda n: 0.001, text=lambda wav, n: "a b")
+    out = await run_loadtest(
+        fake, CLIPS, cfg(tmp_path, [1]), "t", tmp_path / "r", fake_meta(), None
+    )
+    assert out.levels[0].drain_s is None
+
+
 def test_build_pool_encodes_wavs_with_references(tmp_path: Path) -> None:
     entries = write_clips(tmp_path, [("a", 2.5, "2-5", "hello there")])
     (clip,) = build_pool(entries, 16000)
