@@ -63,6 +63,18 @@ def write_runs(root: Path) -> None:
         (root / run.label / "summary.json").write_text(run.model_dump_json(), encoding="utf-8")
 
 
+def open_run() -> LoadRunSummary:
+    levels = [level(1, 0.1), level(64, 0.3), level(128, 0.6)]
+    run = summary("vllm-open-live", "2026-10-04T10:00:00Z", levels, 64)
+    return run.model_copy(update={"mode": "open", "pause_s": 1.0})
+
+
+def write_open_run(root: Path) -> None:
+    run = open_run()
+    (root / run.label).mkdir(parents=True)
+    (root / run.label / "summary.json").write_text(run.model_dump_json(), encoding="utf-8")
+
+
 def test_runs_load_in_timestamp_order(tmp_path: Path) -> None:
     write_runs(tmp_path)
     assert [r.label for r in load_runs(tmp_path)] == ["baseline", "vllm"]
@@ -108,3 +120,38 @@ def test_report_command_writes_tables_and_plots(tmp_path: Path) -> None:
         "throughput.png",
     }
     assert expected <= {p.name for p in out.iterdir()}
+
+
+def test_concurrency_table_names_live_speakers_for_open_runs() -> None:
+    assert concurrency_table(open_run()).startswith("| Live speakers | Avg RTF |")
+
+
+def test_open_plots_write_pngs(tmp_path: Path) -> None:
+    plot_p95([open_run()], tmp_path / "p95.png", [0.5, 0.3], xlabel="Live speakers")
+    plot_throughput([open_run()], tmp_path / "tp.png", xlabel="Live speakers")
+    for name in ("p95.png", "tp.png"):
+        assert (tmp_path / name).read_bytes().startswith(b"\x89PNG")
+
+
+def test_report_keeps_open_runs_out_of_the_journey(tmp_path: Path) -> None:
+    write_runs(tmp_path / "loadtest")
+    write_open_run(tmp_path / "loadtest")
+    out = tmp_path / "plots"
+    args = ["report", "--results", str(tmp_path / "loadtest"), "--out", str(out)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert "vllm-open-live" not in (out / "journey.md").read_text()
+    names = {p.name for p in out.iterdir()}
+    assert {"p95_rtf.png", "throughput.png", "p95_rtf_open.png", "throughput_open.png"} <= names
+    assert (out / "concurrency_vllm-open-live.md").read_text().startswith("| Live speakers |")
+
+
+def test_report_with_only_open_runs(tmp_path: Path) -> None:
+    write_open_run(tmp_path / "loadtest")
+    out = tmp_path / "plots"
+    args = ["report", "--results", str(tmp_path / "loadtest"), "--out", str(out)]
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0, result.output
+    names = {p.name for p in out.iterdir()}
+    assert {"journey.md", "p95_rtf_open.png", "throughput_open.png"} <= names
+    assert not {"p95_rtf.png", "throughput.png"} & names

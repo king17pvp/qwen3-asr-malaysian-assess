@@ -383,12 +383,20 @@ def report(
         log.error("No */summary.json under %s", results)
         raise typer.Exit(code=1)
     out.mkdir(parents=True, exist_ok=True)  # derived files: regenerated on every run
-    (out / "journey.md").write_text(journey_table(runs), encoding="utf-8")
+    closed = [run for run in runs if run.mode == "closed"]
+    live = [run for run in runs if run.mode == "open"]
+    # the journey compares configurations under the same closed-loop clients; open runs count
+    # live speakers, a different axis, so they get their own plots
+    (out / "journey.md").write_text(journey_table(closed), encoding="utf-8")
     for run in runs:
         (out / f"concurrency_{run.label}.md").write_text(concurrency_table(run), "utf-8")
     thresholds = [v.threshold for v in runs[0].verdicts]
-    plot_p95(runs, out / "p95_rtf.png", thresholds)
-    plot_throughput(runs, out / "throughput.png")
+    if closed:
+        plot_p95(closed, out / "p95_rtf.png", thresholds)
+        plot_throughput(closed, out / "throughput.png")
+    if live:
+        plot_p95(live, out / "p95_rtf_open.png", thresholds, xlabel="Live speakers")
+        plot_throughput(live, out / "throughput_open.png", xlabel="Live speakers")
     log.info("Wrote tables and plots for %d runs to %s", len(runs), out)
 
 

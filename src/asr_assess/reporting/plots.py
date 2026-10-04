@@ -7,8 +7,13 @@ from typing import Any
 from asr_assess.core.load_results import LoadRunSummary
 
 
-def plot_p95(runs: Sequence[LoadRunSummary], path: Path, thresholds: Sequence[float]) -> None:
-    """P95 RTF against concurrent streams, one line per run, dashed threshold lines."""
+def plot_p95(
+    runs: Sequence[LoadRunSummary],
+    path: Path,
+    thresholds: Sequence[float],
+    xlabel: str = "Concurrent streams",
+) -> None:
+    """P95 RTF against load, one line per run, dashed threshold lines."""
     fig, ax = _axes()
     for run in runs:
         points = [(lv.level, lv.rtf.p95) for lv in _ordered(run) if lv.rtf]
@@ -17,11 +22,13 @@ def plot_p95(runs: Sequence[LoadRunSummary], path: Path, thresholds: Sequence[fl
             ax.plot(levels, p95s, marker="o", label=run.label)
     for threshold in thresholds:
         ax.axhline(threshold, linestyle="--", linewidth=1, color="grey")
-    _finish(fig, ax, "P95 RTF", path)
+    _finish(fig, ax, xlabel, "P95 RTF", path)
 
 
-def plot_throughput(runs: Sequence[LoadRunSummary], path: Path) -> None:
-    """Audio seconds served per second against concurrent streams, one line per run."""
+def plot_throughput(
+    runs: Sequence[LoadRunSummary], path: Path, xlabel: str = "Concurrent streams"
+) -> None:
+    """Audio seconds served per second against load, one line per run."""
     fig, ax = _axes()
     for run in runs:
         levels = _ordered(run)
@@ -31,7 +38,7 @@ def plot_throughput(runs: Sequence[LoadRunSummary], path: Path) -> None:
             marker="o",
             label=run.label,
         )
-    _finish(fig, ax, "Audio seconds per second", path)
+    _finish(fig, ax, xlabel, "Audio seconds per second", path)
 
 
 def _ordered(run: LoadRunSummary) -> list[Any]:
@@ -47,11 +54,11 @@ def _axes() -> tuple[Any, Any]:
     return plt.subplots(figsize=(7, 4.5))
 
 
-def _finish(fig: Any, ax: Any, ylabel: str, path: Path) -> None:
+def _finish(fig: Any, ax: Any, xlabel: str, ylabel: str, path: Path) -> None:
     import matplotlib.pyplot as plt
 
     ax.set_xscale("log", base=2)
-    ax.set_xlabel("Concurrent streams")
+    ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.grid(alpha=0.3)
     ax.legend()
