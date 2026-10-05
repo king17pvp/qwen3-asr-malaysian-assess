@@ -200,6 +200,44 @@ vLLM notes:
   clips stay close to bf16 (14.67% vs 14.42%). FP8 KV cache alone (`fp8-kv.yaml`) has no loop
   (14.53%) but adds no capacity. See `reports/inference.md` §3.7.
 
+## Docker
+
+Two images built from `uv.lock`, because the `train` and `serve` extras conflict:
+
+| Image | Dockerfile | Extras | Host driver | Compose services |
+|---|---|---|---|---|
+| `asr-assess-train` | `docker/Dockerfile.train` | `train` + `data` + `http`, dev tools | ≥ CUDA 12.6 | `train`, `hf` (port 8001) |
+| `asr-assess-serve` | `docker/Dockerfile.serve` | `serve` (vLLM 0.30.0, `http`) | ≥ CUDA 12.9 | `vllm` (port 8000), `loadtest` |
+
+The host needs Linux (or WSL2), an NVIDIA driver and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/).
+Code and configs are baked into the image. `data/`, `checkpoints/`, `results/`, `logs/` and the
+Hugging Face cache (`$HF_CACHE`, default `~/.cache/huggingface`) are mounted, so outputs land
+where a host `uv run` would put them. Inside a container `make <target>` and the scripts run unchanged.
+
+```bash
+export HF_TOKEN=...
+make docker-build                                    # both images
+# data, training, evaluation (train image)
+docker compose run --rm train make data
+docker compose run --rm train uv run pytest -m model # real-model smoke test
+docker compose run --rm train make train-smoke
+docker compose run --rm train make train merge eval-ft
+# serving (default VLLM_CFG=configs/vllm/tuned.yaml, the final config)
+docker compose up vllm
+VLLM_CFG=configs/vllm/default.yaml docker compose up vllm
+HF_CFG=configs/serve/hf_batched.yaml docker compose up hf
+# load test against the running server, from a second terminal
+docker compose run --rm loadtest make loadtest URL=http://vllm:8000 LABEL=docker-smoke \
+    SERVER_CFG=configs/vllm/tuned.yaml
+curl -F model=king17pvp/qwen3-asr-1.7b-malaysian -F file=@data/audio/eval/english_read/<clip>.wav \
+    http://localhost:8000/v1/audio/transcriptions
+```
+
+Containers run as root, so files written to the mounts are root-owned on the host. To pick up
+code or config edits, rebuild the image (`make docker-build`). Only the last layer is rebuilt, so
+torch and vLLM are not reinstalled.
+
 ## Development
 
 Everything runs through [uv](https://docs.astral.sh/uv/); the base install and CPU tests need no GPU.
