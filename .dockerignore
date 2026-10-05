@@ -1,0 +1,25 @@
+# Mounted at run time (docker-compose.yml), never baked into an image.
+data/
+checkpoints/
+outputs/
+logs/
+# Raw results; the tracked summaries stay so `git status` (run records' git_dirty) is clean.
+results/*
+!results/.gitkeep
+!results/summary/
+!results/plots/
+
+# Local environments and caches.
+.venv/
+**/__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.claude/
+.superpowers/
+
+# Notes, secrets, the assessment PDF.
+docs/
+.env
+.env.*
+*.pdf
