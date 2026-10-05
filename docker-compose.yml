@@ -1,0 +1,72 @@
+# Two images: `train` (train + data + http extras: data, eval, bench, LoRA, merge, push, HF server)
+# and `serve` (vLLM + http: vLLM server, load-test client). Code and the locked environment are
+# baked in; data, checkpoints, results, logs and the Hugging Face cache are mounted from the host,
+# so outputs land in the same places as a `uv run` on the host.
+#   docker compose build
+#   docker compose run --rm train make train-smoke      # any Makefile target or asr-assess command
+#   docker compose up vllm                              # VLLM_CFG=configs/vllm/<row>.yaml to override
+#   docker compose run --rm loadtest make loadtest URL=http://vllm:8000 LABEL=docker-smoke
+# Containers run as root, so files they write under the mounts are owned by root on the host.
+
+x-common: &common
+  environment:
+    HF_TOKEN: ${HF_TOKEN:-}
+  volumes:
+    - ./data:/app/data
+    - ./checkpoints:/app/checkpoints
+    - ./results:/app/results
+    - ./logs:/app/logs
+    - ${HF_CACHE:-${HOME}/.cache/huggingface}:/cache/huggingface
+  ipc: host  # PyTorch DataLoader workers and vLLM share memory through /dev/shm
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+x-train-image: &train-image
+  image: asr-assess-train
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.train
+
+x-serve-image: &serve-image
+  image: asr-assess-serve
+  build:
+    context: .
+    dockerfile: docker/Dockerfile.serve
+
+services:
+  vllm:
+    <<: [*common, *serve-image]
+    command: ["bash", "scripts/vllm_serve.sh", "${VLLM_CFG:-configs/vllm/tuned.yaml}"]
+    ports: ["8000:8000"]
+    volumes:
+      - ./data:/app/data
+      - ./checkpoints:/app/checkpoints
+      - ./results:/app/results
+      - ./logs:/app/logs
+      - ${HF_CACHE:-${HOME}/.cache/huggingface}:/cache/huggingface
+      - vllm-cache:/root/.cache  # torch.compile / CUDA graph / FlashInfer caches: faster restarts
+
+  train:
+    <<: [*common, *train-image]
+    profiles: [train]
+    command: ["make", "help"]
+
+  hf:
+    <<: [*common, *train-image]
+    profiles: [hf]
+    command: ["make", "serve-hf", "CFG=${HF_CFG:-configs/serve/hf_baseline.yaml}"]
+    ports: ["8001:8001"]
+
+  # Load-test client; it keeps GPU access because the client samples GPU utilization via NVML.
+  loadtest:
+    <<: [*common, *serve-image]
+    profiles: [loadtest]
+    command: ["make", "help"]
+
+volumes:
+  vllm-cache:
