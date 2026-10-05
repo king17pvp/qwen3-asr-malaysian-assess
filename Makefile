@@ -1,5 +1,5 @@
 # Thin aliases for `uv run asr-assess ...`; stage targets are added with their stages.
-.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge push eval-ft serve-hf serve-vllm serve-vllm-two loadtest report test lint format
+.PHONY: help install check-configs data data-plan eval-base bench-base train-smoke train merge push eval-ft serve-hf serve-vllm serve-vllm-two loadtest report test lint format docker-build
 
 help:
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -87,3 +87,6 @@ lint: ## ruff + mypy, as in CI
 format: ## Auto-fix lint and formatting
 	uv run ruff check --fix .
 	uv run ruff format .
+
+docker-build: ## Build the train and serve images (docker-compose.yml)
+	docker compose --profile train --profile loadtest build
