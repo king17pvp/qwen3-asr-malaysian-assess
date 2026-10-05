@@ -180,7 +180,7 @@ sweep, GPU and metrics sampling and the results. Requests are cut at `request_ti
 ```bash
 make serve-vllm CFG=configs/vllm/tuned.yaml
 ulimit -n 65536
-make loadtest URL=http://localhost:8000 LABEL=vllm-open-live-w4 PROFILE=open_live WORKERS=4 SERVER_CFG=configs/vllm/tuned.yaml
+make loadtest URL=http://localhost:8000 LABEL=vllm-open-live PROFILE=open_live SERVER_CFG=configs/vllm/tuned.yaml
 ```
 
 vLLM notes:
